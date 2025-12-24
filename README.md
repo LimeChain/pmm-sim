@@ -8,11 +8,11 @@ Supported AMMs:
 - [x] SolfiV2
 - [x] ObricV2
 - [x] Zerofi
-- [] TesseraV
-- [] AlphaQ
-- [] Goonfi
-- [] Aquifer
-- [] Bisonfi
+- [ ] TesseraV
+- [ ] AlphaQ
+- [ ] Goonfi
+- [ ] Aquifer
+- [ ] Bisonfi
 
 The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts)) or with the current live accounts (by fetching them on-the-go). By default, all swaps are done with the live accounts.
 
