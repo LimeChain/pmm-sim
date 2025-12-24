@@ -1,0 +1,14 @@
+{
+  "account": {
+    "data": [
+      "CVWqM8wP8GZW+78/iCLdRC7ohugAM8xmk95sT5sBAABxdBHuIt2IRAgU0xfMM2aZAQARIjNEVWZ3iJmqu8zd7oSpCx81zGaZEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vAMSIDeje7pe9NvntwcpmSG",
+      "base64"
+    ],
+    "executable": false,
+    "lamports": 2060161,
+    "owner": "E2uCGJ4TtYyKPGaK57UMfbs9sgaumwDEZF1aAY6fF3mS",
+    "rentEpoch": 18446744073709551615
+  },
+  "pubkey": "2ny7eGyZCoeEVTkNLf5HcnJFBKkyA4p4gcrtb3b8y8ou",
+  "slot": 388808083
+}
