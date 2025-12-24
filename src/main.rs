@@ -1,5 +1,5 @@
 #![doc = include_str!("../README.md")]
-// #![deny(unused)]
+#![deny(unused)]
 //! .
 //! .
 
@@ -105,7 +105,7 @@ pub mod consts {
 }
 
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version, about = "Simulate Solana Prop AMM swaps locally", long_about = None)]
 pub struct CliArgs {
     #[command(subcommand)]
     pub command: Command,
@@ -173,8 +173,7 @@ pub struct CommonArgs {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     #[command(
-        about = "Execute a single swap instruction",
-        long_about = "Run a single swap instruction across one or more DEXes with specified weights",
+        about = "Run a single swap instruction across one or more Prop AMMs with specified weights",
         after_help = "Examples:
   pmm-sim single --dexes humidifi --weights 100
   pmm-sim single --dexes humidifi,obric-v2 --weights 50,50
@@ -188,7 +187,7 @@ pub enum Command {
             long,
             value_delimiter = ',',
             default_value = "humidifi,obric-v2",
-            help = "Comma-separated list of dexes"
+            help = "Comma-separated list of Prop AMMs"
         )]
         dexes: Vec<Dex>,
 
@@ -197,39 +196,36 @@ pub enum Command {
     },
 
     #[command(
-        about = "Execute more than one swap instruction",
-        long_about = "Execute more than one swap instructions across one or more DEXes routes with specified weights",
+        about = "Execute multiple swap instructions across nested Prop AMM routes. Each inner list represents a \
+                 single transaction step.",
         after_help = "Examples:
-  pmm-sim multi --dexes '[[humidifi]]' --weights '[[100]]'
-  pmm-sim multi --dexes '[[humidifi,obric-v2],[zerofi]]' --weights '[[50,50],[100]]'
-  pmm-sim multi --amount-in 1000000 --dexes '[[humidifi],[obric-v2,solfi-v2],[zerofi]]' --weights \
+      # Single step with one DEX
+      pmm-sim multi --dexes '[[humidifi]]' --weights '[[100]]'
+
+      # Two sequential swaps: (Humidifi + Obric) followed by Zerofi
+      pmm-sim multi --dexes '[[humidifi,obric-v2],[zerofi]]' --weights '[[50,50],[100]]'
+
+      # Complex three-step route
+      pmm-sim multi --amount-in 10 --dexes '[[humidifi],[obric-v2,solfi-v2],[zerofi]]' --weights \
                       '[[100],[60,40],[100]]'"
     )]
     Multi {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(
-            long,
-            //value_parser = CliArgs::parse_nested_dexes,
-            default_value = "[[humidifi]]",
-            help = "Nested routes, e.g. '[[humidifi,obric-v2],[zerofi]]'"
-        )]
+        #[arg(long, default_value = "[[humidifi]]", help = "JSON nested routes, e.g. '[[dex1,dex2],[dex3]]'")]
         dexes: String,
 
         #[arg(
             long,
-            //value_parser = CliArgs::parse_nested_weights,
             default_value = "[[100]]",
-            help = "Nested weights, e.g. '[[50,50],[100]]'"
+            help = "JSON nested weights matching the dexes structure, e.g. '[[50,50],[100]]'"
         )]
         weights: String,
     },
 
     #[command(
-        about = "Fetch and save DEX accounts to disk",
-        long_about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for further \
-                      simulation later on).",
+        about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage)",
         after_help = "Examples:
   pmm-sim fetch-accounts --dexes humidifi
   pmm-sim fetch-accounts --dexes humidifi,obric-v2,zerofi,solfi-v2pmm-sim \
@@ -852,9 +848,7 @@ impl Run {
             &[&env.wallet],
             env.latest_blockhash(),
         );
-
-        let result = env.send_transaction(tx);
-        debug!("{result:#?}");
+        env.send_transaction(tx).expect("failed to exec tx");
 
         let (src_after, dst_after) = (
             env.token_balance(&src_mint) as f64 / 10_f64.powi(env.get_decimals(&src_mint) as i32),
@@ -868,6 +862,7 @@ impl Run {
             dst_name,
             dst_after - dst_before
         );
+
         Ok(())
     }
 }
