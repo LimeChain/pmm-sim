@@ -1,8 +1,8 @@
 #![doc = include_str!("../README.md")]
+#![allow(clippy::type_complexity, clippy::result_large_err)]
 #![deny(unused)]
 //! .
 //! .
-
 use std::{
     collections::HashSet,
     fmt::Display,
@@ -11,7 +11,6 @@ use std::{
     path::Path,
     str::FromStr,
     time::SystemTime,
-    u64,
 };
 
 use base64::{Engine, engine::general_purpose};
@@ -285,7 +284,7 @@ struct Environment<'a, P: Into<String> + Display + Clone> {
 }
 
 impl<'a, P: Into<String> + Display + Clone> Environment<'a, P> {
-    fn new(programs_path: P, accounts_path: P, mints: Option<&[(Pubkey, u8)]>) -> eyre::Result<Environment<P>> {
+    fn new(programs_path: P, accounts_path: P, mints: Option<&[(Pubkey, u8)]>) -> eyre::Result<Environment<'_, P>> {
         let mut budget = ComputeBudget::new_with_defaults(false);
         budget.compute_unit_limit = 2_000_000;
 
