@@ -1,7 +1,10 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
 #![deny(unused)]
-//! Simulate Prop AMMs
+
+//! Simulation environment for Solana Proprietary AMM swaps.
+//!
+//! Simulate Swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 use std::{
     collections::HashSet,
     fmt::{Debug, Display},
@@ -272,6 +275,10 @@ impl Token {
     }
 }
 
+/// The Simulation Environment;
+/// Ensures proper setup of the LiteSVM, wallet, programs, and accounts.
+/// Also provides utility functions for common operations, like
+/// loading programs/accounts, setting up the wallet, sending transactions, etc.
 struct Environment<'a, P: Into<String> + Display + Clone + Debug> {
     svm: LiteSVM,
     wallet: Keypair,
@@ -517,6 +524,13 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 }
 
+/// A helper struct to construct swap instructions with the required accounts
+/// for different Prop AMMs.
+///
+/// As is currently the case, all swaps pass through the Magnus Router program,
+/// which in turn calls the respective Prop AMM program. Therefore, the swap
+/// instruction is built using the `SwapBuilder` from the `magnus-router-client`
+/// crate, and then the required accounts for the specific Prop AMM are attached.
 pub struct ConstructSwap<'a> {
     builder: &'a mut SwapBuilder,
     payer: Pubkey,
