@@ -2925,6 +2925,7 @@ dependencies = [
  "serde",
  "serde_json",
  "solana-client",
+ "solana-commitment-config",
  "solana-compute-budget",
  "solana-sdk",
  "spl-associated-token-account",

@@ -3,7 +3,7 @@
 //! Simulate and/or Benchmark swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
-#![deny(unused)]
+//#![deny(unused)]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -27,6 +27,7 @@ use magnus_shared::{Dex, Route};
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use solana_client::rpc_client::RpcClient;
+use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget::compute_budget::ComputeBudget;
 use solana_sdk::{
     account::Account, message::AccountMeta, program_pack::Pack, pubkey::Pubkey, rent::Rent, signature::Keypair, signer::Signer, sysvar,
@@ -37,7 +38,7 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
 /// Constants used throughout the simulation environment.
-/// Holds the CFG file paths and swappable token accounts;
+/// Holds the CFG file paths, swappable token accounts and more;
 pub mod consts {
     use solana_sdk::{pubkey, pubkey::Pubkey};
 
@@ -57,6 +58,12 @@ pub mod consts {
     pub const USDT_DECIMALS: u8 = 6;
 
     pub const PROGRESS_TEMPLATE: &str = "{prefix:>12.bold} [{bar:40.cyan/blue}] {pos:>6}/{len:<6} ({percent}%)";
+    pub const PROGRESS_CHARS: &str = "█▓░";
+
+    // used to pay for tx fees
+    pub const AIRDROP_AMOUNT: u64 = 1_000_000_000;
+    // the maximum number of compute units a tx can consume
+    pub const COMPUTE_UNITS_LIMIT: u64 = 20_000_000;
 }
 
 /// Macro to generate dex configuration structs and their associated functions.
@@ -217,7 +224,7 @@ impl CliArgs {
         serde_json::from_str(s).map_err(|e| format!("invalid format: {}", e))
     }
 
-    fn parse_step(s: &str) -> Result<[f64; 3], String> {
+    fn parse_steps(s: &str) -> Result<[f64; 3], String> {
         let parts: Vec<f64> = s.split(',').map(|p| p.trim().parse::<f64>().map_err(|e| e.to_string())).collect::<Result<Vec<_>, _>>()?;
 
         let parts: [f64; 3] =
@@ -364,11 +371,11 @@ pub enum Command {
         after_help = "Examples:
   # Benchmark Humidifi swaps (WSOL->USDC) with the current AMM state, stepping from 1 to 100 with a step size of 1. The resulting CSV
   # will be saved in the ./datasets directory
-  pmm-sim benchmark --pmms=humidifi --step=1.0,100.0,1.0
+  pmm-sim benchmark --pmms=humidifi --steps=1.0,100.0,1.0
 
-  # Benchmark SolfiV2 and Tessera swaps (USDC->USDT) with the current AMM state, stepping from 10 to 1000 with a step size of 5. The
+  # Benchmark SolfiV2 and Tessera swaps (WSOL->USDC) with the current AMM state, stepping from 10 to 1000 with a step size of 5. The
   # resulting CSVs will be saved in the ./datasets directory
-  pmm-sim benchmark --pmms=solfi-v2,tessera --src-token=USDC --dst-token=USDT --step=10.0,1000.0,5.0
+  pmm-sim benchmark --pmms=solfi-v2,tessera --src-token=WSOL --dst-token=USDC --steps=10.0,1000.0,5.0
         "
     )]
     Benchmark {
@@ -381,8 +388,8 @@ pub enum Command {
         #[arg(long, env = "PROP_AMMS", value_delimiter = ',', default_value = "humidifi", help = "The Prop AMMs to benchmark")]
         pmms: Vec<Dex>,
 
-        #[arg(long, env = "STEP", default_value = "1.0,100.0,1.0", value_parser = CliArgs::parse_step, help = "Comma-separated step parameters: start, end, step")]
-        step: [f64; 3],
+        #[arg(long, env = "STEPS", default_value = "1.0,100.0,1.0", value_parser = CliArgs::parse_steps, help = "Comma-separated step parameters: start, end, step")]
+        steps: [f64; 3],
     },
 }
 
@@ -490,7 +497,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         slot: Option<u64>,
     ) -> eyre::Result<Environment<'_, P>> {
         let mut budget = ComputeBudget::new_with_defaults(false);
-        budget.compute_unit_limit = 20_000_000;
+        budget.compute_unit_limit = consts::COMPUTE_UNITS_LIMIT;
 
         let wallet = Keypair::new();
         let mut svm = LiteSVM::new().with_default_programs().with_sysvars().with_sigverify(true).with_compute_budget(budget);
@@ -504,33 +511,52 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(Environment { svm, slot, wallet, programs_path, accounts_path, mints, cfg })
     }
 
-    fn setup_wallet(&mut self, mint: &Pubkey, mint_amount: u64, airdrop_amount: u64) -> eyre::Result<()> {
-        // create the ATAs for all initialised mints
+    /// Sets up the wallet for the simulation environment.
+    ///
+    /// This function initializes the wallet's Associated Token Accounts (ATAs) for all
+    /// configured mints and funds the wallet with SOL for transaction fees.
+    ///
+    /// # Arguments
+    /// * `src_mint` - The mint address of the source token to fund
+    /// * `src_amount` - The amount of source tokens to mint to the wallet's ATA
+    /// * `airdrop_amount` - The amount of SOL (in lamports) to airdrop for transaction fees
+    ///
+    /// # Behavior
+    /// 1. Creates ATAs with zero balance for all mints in `self.mints`
+    /// 2. Sets the source mint's ATA balance to `src_amount`
+    /// 3. Airdrops SOL to the wallet for fees
+    fn setup_wallet(&mut self, src_mint: &Pubkey, src_amount: u64, airdrop_amount: u64) -> eyre::Result<()> {
         if let Some(mints) = self.mints {
             for (mint, _) in mints {
-                let ata = get_associated_token_address(&self.wallet_pubkey(), mint);
-                self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), 0))?;
+                let ata = self.wallet_ata(mint);
+                let amount = if mint == src_mint { src_amount } else { 0 };
+                self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), amount))?;
             }
         }
-
-        let ata = get_associated_token_address(&self.wallet_pubkey(), mint);
-        self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), mint_amount))?;
 
         self.svm.airdrop(&self.wallet_pubkey(), airdrop_amount).expect("airdrop failed");
 
         Ok(())
     }
 
-    fn reset_wallet(&mut self, mint: &Pubkey, amount: u64) -> eyre::Result<()> {
-        let src_ata = self.wallet_ata(mint);
-        self.svm.set_account(src_ata, self.mk_ata(mint, &self.wallet_pubkey(), amount))?;
-
+    /// Resets the wallet's token balances between simulation iterations.
+    ///
+    /// This function is used in benchmarking to restore the wallet to a known state
+    /// before each swap iteration, ensuring consistent and reproducible results.
+    ///
+    /// # Arguments
+    /// * `src_mint` - The mint address of the source token
+    /// * `src_amount` - The amount of source tokens to set in the wallet's ATA
+    ///
+    /// # Behavior
+    /// 1. Sets the source mint's ATA balance to `src_amount`
+    /// 2. Resets all other mint ATAs to zero balance
+    fn reset_wallet(&mut self, src_mint: &Pubkey, src_amount: u64) -> eyre::Result<()> {
         if let Some(mints) = self.mints {
-            for (m, _) in mints {
-                if m != mint {
-                    let dst_ata = self.wallet_ata(m);
-                    self.svm.set_account(dst_ata, self.mk_ata(m, &self.wallet_pubkey(), 0))?;
-                }
+            for (mint, _) in mints {
+                let ata = self.wallet_ata(mint);
+                let amount = if mint == src_mint { src_amount } else { 0 };
+                self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), amount))?;
             }
         }
 
@@ -587,11 +613,8 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
 
-        for (dex, accounts) in accs_map {
-            for (pubkey, account) in accounts {
-                self.svm.set_account(pubkey, account)?;
-                debug!("loaded account {pubkey} for {dex}");
-            }
+        for (_, accs) in accs_map {
+            self.load_accounts(&accs)?;
         }
 
         if let Some(s) = slot {
@@ -605,11 +628,8 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
         let (slot, fetched) = Misc::fetch_pmm_accounts(pmms, client, &self.cfg)?;
 
-        for (dex, accounts) in fetched {
-            for (pubkey, account) in accounts {
-                self.svm.set_account(pubkey, account)?;
-                debug!("loaded account {pubkey} for {dex}");
-            }
+        for (_, accs) in fetched {
+            self.load_accounts(&accs)?;
         }
 
         info!("loaded {pmms:?} accounts");
@@ -708,6 +728,8 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 /// which in turn calls the respective Prop AMM program. Therefore, the swap
 /// instruction is built using the `SwapBuilder` from the `magnus-router-client`
 /// crate, and then the required accounts for the specific Prop AMM are attached.
+///
+/// The order of the remaining accounts matters.
 pub struct ConstructSwap<'a> {
     cfg: PMMCfg,
     builder: &'a mut SwapBuilder,
@@ -739,138 +761,131 @@ impl<'a> ConstructSwap<'a> {
 
     pub fn attach_solfiv2_accs(&mut self) {
         if let Some(cfg) = &self.cfg.solfi_v2 {
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(
-                    Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()),
-                    false,
-                ))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.oracle, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.cfg, false))
-                .add_remaining_account(AccountMeta::new(cfg.base_token_acc, false))
-                .add_remaining_account(AccountMeta::new(cfg.quote_token_acc, false))
-                .add_remaining_account(AccountMeta::new_readonly(consts::WSOL, false))
-                .add_remaining_account(AccountMeta::new_readonly(consts::USDC, false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::instructions::id(), false));
+            self.builder.add_remaining_accounts(&vec![
+                AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
+                AccountMeta::new(self.payer, true),
+                AccountMeta::new(self.sta, false),
+                AccountMeta::new(self.dta, false),
+                AccountMeta::new(cfg.market, false),
+                AccountMeta::new_readonly(cfg.oracle, false),
+                AccountMeta::new_readonly(cfg.cfg, false),
+                AccountMeta::new(cfg.base_token_acc, false),
+                AccountMeta::new(cfg.quote_token_acc, false),
+                AccountMeta::new_readonly(consts::WSOL, false),
+                AccountMeta::new_readonly(consts::USDC, false),
+                AccountMeta::new_readonly(spl_token::id(), false),
+                AccountMeta::new_readonly(spl_token::id(), false),
+                AccountMeta::new_readonly(sysvar::instructions::id(), false),
+            ]);
         } else {
             panic!("SolfiV2 config is missing, cannot attach accounts.");
         }
     }
 
     pub fn attach_humidifi_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.humidifi {
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(
-                    Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()),
-                    false,
-                ))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new(cfg.base_token_acc, false))
-                .add_remaining_account(AccountMeta::new(cfg.quote_token_acc, false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::clock::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::instructions::id(), false));
-        } else {
+        let Some(cfg) = &self.cfg.humidifi else {
             panic!("Humidifi config is missing, cannot attach accounts.");
-        }
+        };
+
+        self.builder.add_remaining_accounts(&vec![
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.sta, false),
+            AccountMeta::new(self.dta, false),
+            AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.base_token_acc, false),
+            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]);
     }
 
     pub fn attach_zerofi_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.zerofi {
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new(cfg.vault_info_base, false))
-                .add_remaining_account(AccountMeta::new(cfg.vault_base, false))
-                .add_remaining_account(AccountMeta::new(cfg.vault_info_quote, false))
-                .add_remaining_account(AccountMeta::new(cfg.vault_quote, false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::instructions::id(), false));
-        } else {
+        let Some(cfg) = &self.cfg.zerofi else {
             panic!("Zerofi config is missing, cannot attach accounts.");
-        }
+        };
+
+        self.builder.add_remaining_accounts(&vec![
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.sta, false),
+            AccountMeta::new(self.dta, false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.vault_info_base, false),
+            AccountMeta::new(cfg.vault_base, false),
+            AccountMeta::new(cfg.vault_info_quote, false),
+            AccountMeta::new(cfg.vault_quote, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]);
     }
 
     pub fn attach_obric_v2_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.obric_v2 {
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(
-                    Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()),
-                    false,
-                ))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.second_ref_oracle, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.third_ref_oracle, false))
-                .add_remaining_account(AccountMeta::new(cfg.reserve_x, false))
-                .add_remaining_account(AccountMeta::new(cfg.reserve_y, false))
-                .add_remaining_account(AccountMeta::new(cfg.ref_oracle, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.x_price_feed, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.y_price_feed, false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false));
-        } else {
+        let Some(cfg) = &self.cfg.obric_v2 else {
             panic!("ObricV2 config is missing, cannot attach accounts.");
-        }
+        };
+
+        self.builder.add_remaining_accounts(&vec![
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.sta, false),
+            AccountMeta::new(self.dta, false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new_readonly(cfg.second_ref_oracle, false),
+            AccountMeta::new_readonly(cfg.third_ref_oracle, false),
+            AccountMeta::new(cfg.reserve_x, false),
+            AccountMeta::new(cfg.reserve_y, false),
+            AccountMeta::new(cfg.ref_oracle, false),
+            AccountMeta::new_readonly(cfg.x_price_feed, false),
+            AccountMeta::new_readonly(cfg.y_price_feed, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+        ]);
     }
 
     pub fn attach_tessera_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.tessera {
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(
-                    Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()),
-                    false,
-                ))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.global_state, false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new(cfg.base_token_acc, false))
-                .add_remaining_account(AccountMeta::new(cfg.quote_token_acc, false))
-                .add_remaining_account(AccountMeta::new_readonly(self.src_mint, false))
-                .add_remaining_account(AccountMeta::new_readonly(self.dst_mint, false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::instructions::id(), false));
-        } else {
+        let Some(cfg) = &self.cfg.tessera else {
             panic!("Tessera config is missing, cannot attach accounts.");
-        }
+        };
+
+        self.builder.add_remaining_accounts(&vec![
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.sta, false),
+            AccountMeta::new(self.dta, false),
+            AccountMeta::new_readonly(cfg.global_state, false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.base_token_acc, false),
+            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new_readonly(self.src_mint, false),
+            AccountMeta::new_readonly(self.dst_mint, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]);
     }
 
     pub fn attach_goonfi_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.goonfi {
-            let goonfi_param_bytes = [0u8; 32];
-            let goonfi_param = Pubkey::new_from_array(goonfi_param_bytes);
-
-            self.builder
-                .add_remaining_account(AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()), false))
-                .add_remaining_account(AccountMeta::new(self.payer, true))
-                .add_remaining_account(AccountMeta::new(self.sta, false))
-                .add_remaining_account(AccountMeta::new(self.dta, false))
-                .add_remaining_account(AccountMeta::new_readonly(goonfi_param, false))
-                .add_remaining_account(AccountMeta::new(cfg.market, false))
-                .add_remaining_account(AccountMeta::new(cfg.base_token_acc, false))
-                .add_remaining_account(AccountMeta::new(cfg.quote_token_acc, false))
-                .add_remaining_account(AccountMeta::new_readonly(cfg.blacklist, false))
-                .add_remaining_account(AccountMeta::new_readonly(sysvar::instructions::id(), false))
-                .add_remaining_account(AccountMeta::new_readonly(spl_token::id(), false));
-        } else {
+        let Some(cfg) = &self.cfg.goonfi else {
             panic!("Goonfi config is missing, cannot attach accounts.");
-        }
+        };
+
+        let goonfi_param = Pubkey::new_from_array([0u8; 32]);
+
+        self.builder.add_remaining_accounts(&vec![
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.sta, false),
+            AccountMeta::new(self.dta, false),
+            AccountMeta::new_readonly(goonfi_param, false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.base_token_acc, false),
+            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new_readonly(cfg.blacklist, false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+        ]);
     }
 }
 
@@ -905,12 +920,12 @@ impl Misc {
 
     fn read_accounts_disk(pmms: &[Dex], accounts_path: &str) -> eyre::Result<(Option<u64>, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
         let unique_pmms: HashSet<_> = pmms.iter().collect();
-        let mut results = HashMap::new();
+        let mut res = HashMap::new();
         let mut all_slots: Vec<u64> = vec![];
 
         let data_dir = Path::new(accounts_path);
         if !data_dir.exists() {
-            return Ok((None, results));
+            return Ok((None, res));
         }
 
         for dex in unique_pmms {
@@ -937,7 +952,7 @@ impl Misc {
                 all_slots.extend(&slots);
             }
 
-            results.insert(*dex, dex_accounts);
+            res.insert(*dex, dex_accounts);
             info!("loaded accounts for {dex} from disk");
         }
 
@@ -953,35 +968,50 @@ impl Misc {
             Some(first_slot)
         };
 
-        Ok((slot, results))
+        Ok((slot, res))
     }
 
     fn fetch_pmm_accounts(pmms: &[Dex], client: &RpcClient, cfg: &PMMCfg) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
-        let slot = client.get_slot()?;
-        let unique_pmms: HashSet<_> = pmms.iter().collect();
-        let mut results = HashMap::new();
+        let pmms: HashSet<_> = pmms.iter().collect();
+        let mut res = HashMap::new();
 
-        info!("fetching accounts for {pmms:?} at slot {slot}");
-        for dex in unique_pmms {
+        // track which dex the accounts belong to
+        let mut all_pubkeys: Vec<Pubkey> = vec![];
+        let mut dex_ranges: Vec<(Dex, std::ops::Range<usize>)> = vec![];
+
+        for dex in &pmms {
             let Some(accounts) = cfg.get_accounts(dex) else {
                 warn!("skipping unsupported prop amms: {dex}");
                 continue;
             };
 
-            let fetched = client.get_multiple_accounts(&accounts)?;
+            let start = all_pubkeys.len();
+            all_pubkeys.extend(accounts.iter());
+            let end = all_pubkeys.len();
+            dex_ranges.push((**dex, start..end));
+        }
+
+        let response = client.get_multiple_accounts_with_commitment(&all_pubkeys, CommitmentConfig::confirmed())?;
+        let slot = response.context.slot;
+        let all_accounts = response.value;
+
+        info!("fetched {} accounts for {pmms:?} at slot {slot}", all_pubkeys.len());
+
+        // reconstruct per-dex account maps
+        for (dex, range) in dex_ranges {
             let mut dex_accounts = vec![];
-            for (pubkey, account) in accounts.iter().zip(fetched.into_iter()) {
-                if let Some(acc) = account {
-                    dex_accounts.push((*pubkey, acc));
+            for (i, pubkey) in all_pubkeys[range.clone()].iter().enumerate() {
+                let idx = range.start + i;
+                if let Some(acc) = &all_accounts[idx] {
+                    dex_accounts.push((*pubkey, acc.clone()));
                 } else {
                     warn!("account {pubkey} not found for {dex}");
                 }
             }
-
-            results.insert(*dex, dex_accounts);
+            res.insert(dex, dex_accounts);
         }
 
-        Ok((slot, results))
+        Ok((slot, res))
     }
 
     fn parse_account_from_file(path: &Path) -> eyre::Result<(Pubkey, Account, Option<u64>)> {
@@ -1009,7 +1039,7 @@ impl Misc {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 struct BenchmarkRecord<'a> {
     slot: u64,
     pmm: Dex,
@@ -1025,7 +1055,6 @@ struct BenchmarkRecord<'a> {
 struct Benchmark<'a> {
     records: Vec<BenchmarkRecord<'a>>,
     writer: csv::Writer<File>,
-    save_path: String,
 }
 
 impl<'a> Benchmark<'a> {
@@ -1037,7 +1066,7 @@ impl<'a> Benchmark<'a> {
         };
 
         let writer = Writer::from_path(&save_path)?;
-        Ok(Benchmark { records, writer, save_path })
+        Ok(Benchmark { records, writer })
     }
 
     pub fn save(&mut self) -> eyre::Result<()> {
@@ -1045,7 +1074,6 @@ impl<'a> Benchmark<'a> {
             self.writer.serialize(record)?;
         }
 
-        info!("saved benchmark records @ {}", self.save_path);
         self.writer.flush()?;
 
         Ok(())
@@ -1089,19 +1117,19 @@ impl Run {
     }
 
     fn benchmark(&self) -> eyre::Result<()> {
-        let Command::Benchmark { common, datasets_path, pmms, step } = &self.args.command else { unreachable!() };
+        let Command::Benchmark { common, datasets_path, pmms, steps } = &self.args.command else { unreachable!() };
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
         let (src_mint, src_dec, src_name) = (common.src_token.get_addr(), common.src_token.get_decimals(), common.src_token.to_string());
         let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
         let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
 
-        let norm_step = [
-            (step[0] * 10f64.powi(src_dec as i32)) as u64,
-            (step[1] * 10f64.powi(src_dec as i32)) as u64,
-            (step[2] * 10f64.powi(src_dec as i32)) as u64,
+        let steps = [
+            (steps[0] * 10f64.powi(src_dec as i32)) as u64,
+            (steps[1] * 10f64.powi(src_dec as i32)) as u64,
+            (steps[2] * 10f64.powi(src_dec as i32)) as u64,
         ];
-        let steps_count = ((norm_step[1] - norm_step[0]) / norm_step[2] + 1) as u64;
+        let steps_cnt = ((steps[1] - steps[0]) / steps[2] + 1) as u64;
 
         let time = Local::now().format("%Y%m%d-%H%M%S").to_string();
         let multi = MultiProgress::new();
@@ -1123,31 +1151,32 @@ impl Run {
 
                     s.spawn(move || -> eyre::Result<()> {
                         // start up the progress bar only when all the spawned threads
-                        // have finished bootstrapping so there's no CLI race
-                        let (mut env, src_ata, dst_ata, original_accounts) = multi.suspend(|| -> eyre::Result<_> {
+                        // have finished bootstrapping so there's no CLI progress bar race cond
+                        let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
                             env.load_programs(&[*pmm])?;
                             env.load_accounts(&pmm_accounts.clone())?;
-                            env.setup_wallet(&src_mint, norm_step[1], 10_000_000_000)?;
+                            env.setup_wallet(&src_mint, steps[1], consts::AIRDROP_AMOUNT)?;
 
                             let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
 
-                            Ok((env, src_ata, dst_ata, pmm_accounts))
+                            Ok((env, src_ata, dst_ata))
                         })?;
 
                         let market = cfg.get_market(pmm).unwrap_or_else(|| panic!("{} not configured", pmm)).to_string();
 
-                        let pb = multi.add(ProgressBar::new(steps_count));
-                        pb.set_style(ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars("█▓░"));
+                        let pb = multi.add(ProgressBar::new(steps_cnt));
+                        pb.set_style(
+                            ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars(consts::PROGRESS_CHARS),
+                        );
                         pb.set_prefix(format!("{}", pmm));
 
-                        let mut r = vec![];
-                        let mut warn_count = 0u64;
-                        let route: Vec<magnus_router_client::types::Route> = vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()];
-                        for amount_in in (norm_step[0]..=norm_step[1]).step_by(norm_step[2] as usize) {
-                            let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                        let (mut records, mut warn_cnt) = (vec![], u64::default());
+                        let routes: Vec<Vec<magnus_router_client::types::Route>> =
+                            vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
+                        for amount_in in (steps[0]..=steps[1]).step_by(steps[2] as usize) {
                             env.reset_wallet(&src_mint, amount_in)?;
-                            env.load_accounts(&original_accounts)?;
+                            let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
                             let mut swap_builder = SwapBuilder::new();
                             let swap = swap_builder
@@ -1160,7 +1189,7 @@ impl Run {
                                 .expect_amount_out(1)
                                 .min_return(1)
                                 .amounts(vec![amount_in])
-                                .routes(vec![route.clone()])
+                                .routes(routes.clone())
                                 .order_id(order_id);
 
                             let mut construct = ConstructSwap {
@@ -1186,10 +1215,10 @@ impl Run {
                             let res = match env.send_transaction(tx) {
                                 Ok(res) => res,
                                 Err(e) => {
-                                    if warn_count == 0 {
+                                    if warn_cnt == 0 {
                                         pb.println(format!("[WARN] {}: {:?}", pmm, e));
                                     }
-                                    warn_count += 1;
+                                    warn_cnt += 1;
                                     pb.inc(1);
                                     continue;
                                 }
@@ -1197,7 +1226,7 @@ impl Run {
 
                             let amount_out = env.get_event_amount_out(&res);
 
-                            r.push(BenchmarkRecord {
+                            records.push(BenchmarkRecord {
                                 slot: env.slot.unwrap_or_default(),
                                 pmm: *pmm,
                                 market: &market,
@@ -1212,12 +1241,14 @@ impl Run {
                             pb.inc(1);
                         }
 
-                        if warn_count > 0 {
-                            pb.println(format!("[WARN] {}: {} total failures", pmm, warn_count));
+                        if warn_cnt > 0 {
+                            pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt));
                         }
 
                         let filename = format!("{}/{}_{}_{}_{}.csv", datasets_path, env.slot.unwrap_or_default(), pmm, market, time);
-                        let _ = Benchmark::new(r, &filename)?.save();
+                        Benchmark::new(records.clone(), &filename)?.save().is_ok().then(|| {
+                            pb.println(format!("[{}] saved {} records to {}", pmm, records.len(), filename));
+                        });
 
                         Ok(())
                     })
@@ -1268,7 +1299,7 @@ impl Run {
 
         // - mint only the source token's desired amount (i.e the amount we're going to swap)
         // - airdrop some SOL to cover fees
-        env.setup_wallet(&src_mint, norm_amount_in_sum, 10_000_000_000)?;
+        env.setup_wallet(&src_mint, norm_amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
         let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
@@ -1276,16 +1307,16 @@ impl Run {
             env.token_balance(&src_mint) as f64 / 10_f64.powi(src_dec as i32),
             env.token_balance(&dst_mint) as f64 / 10_f64.powi(dst_dec as i32),
         );
-        info!("before: {} = {} | {} = {}", src_name, src_before, dst_name, dst_before);
+        info!("before: {} = {:.6} | {} = {:.6} | ", src_name, src_before, dst_name, dst_before);
 
         let routes: Vec<Vec<magnus_router_client::types::Route>> = pmms
             .iter()
             .zip(weights.iter())
             .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
             .collect();
-
         info!("swapping {:?} {} via routes: {:?}", norm_amount_in, src_name, routes);
 
+        let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let mut swap_builder = SwapBuilder::new();
         let swap = swap_builder
             .payer(env.wallet_pubkey())
@@ -1298,7 +1329,7 @@ impl Run {
             .min_return(1)
             .amounts(norm_amount_in)
             .routes(routes)
-            .order_id(SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs());
+            .order_id(order_id);
 
         let mut construct = ConstructSwap {
             cfg: self.cfg.clone(),
@@ -1465,26 +1496,26 @@ mod tests {
 
     #[test]
     fn test_parse_step_valid() {
-        let result = CliArgs::parse_step("1.0,100.0,0.5").unwrap();
+        let result = CliArgs::parse_steps("1.0,100.0,0.5").unwrap();
         assert_eq!(result, [1.0, 100.0, 0.5]);
     }
 
     #[test]
     fn test_parse_step_with_spaces() {
-        let result = CliArgs::parse_step("1.0, 100.0, 0.5").unwrap();
+        let result = CliArgs::parse_steps("1.0, 100.0, 0.5").unwrap();
         assert_eq!(result, [1.0, 100.0, 0.5]);
     }
 
     #[test]
     fn test_parse_step_start_gte_end() {
-        let result = CliArgs::parse_step("100.0,50.0,1.0");
+        let result = CliArgs::parse_steps("100.0,50.0,1.0");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("start must be less than end"));
     }
 
     #[test]
     fn test_parse_step_negative_step() {
-        let result = CliArgs::parse_step("1.0,100.0,-1.0");
+        let result = CliArgs::parse_steps("1.0,100.0,-1.0");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("step must be positive"));
     }
