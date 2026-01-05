@@ -11,7 +11,7 @@ Supported Prop AMMs:
 - [x] TesseraV
 - [x] Goonfi
 
-The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts) or with the current live accounts (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts.
+The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts) or with the current live accounts (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts. The markets are specified in [setup.toml](./setup.toml).
 
 Possible modes of execution include:
 
@@ -78,10 +78,10 @@ RUST_LOG=debug cargo r -- multi --pmms="[[humidifi,solfi-v2],[goonfi]]" --weight
 
 ### Benchmark swaps
 
-##### Benchmark swaps on Humidifi, from 1 to 4000 WSOL to USDC, in increments of 1 WSOL, and save the results at [./datasets](./datasets).
+##### Benchmark swaps on Humidifi,Tessera,SolfiV2 and Goonfi, from 1 to 4000 WSOL to USDC, in increments of 1 WSOL, and save the results at [./datasets](./datasets).
 
 ```
-cargo r -- benchmark --steps=1,4000,1 --pmms=humidifi --src-token=wsol --dst-token=usdc
+cargo r -- benchmark --steps=1.0,4000.0,1.0 --pmms=humidifi,tessera,solfi-v2,goonfi --src-token=wsol --dst-token=usdc
 ```
 
 ##### Benchmark swaps (USDC->WSOL) on Humidifi and SolfiV2, from 10K to 100K USDC, in increments of 100 USDC, and save the results at [./datasets](./datasets).

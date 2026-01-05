@@ -34,7 +34,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use spl_associated_token_account::get_associated_token_address;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
 /// Constants used throughout the simulation environment.
@@ -574,8 +574,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// The router program is always loaded, plus any unique PMM programs from the provided list.
     fn load_programs(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         // mandatory load
-        self.svm
-            .add_program_from_file(magnus_router_client::programs::ROUTER_ID, format!("{}/{}.so", self.programs_path, consts::ROUTER))?;
+        self.load_program_router()?;
 
         let unique_pmms: HashSet<_> = pmms.iter().collect();
         for dex in unique_pmms {
@@ -584,7 +583,15 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             self.svm.add_program_from_file(Pubkey::new_from_array(program_id.to_bytes()), format!("{}/{}.so", self.programs_path, dex))?;
         }
 
-        info!("loaded {pmms:?} programs");
+        info!("loaded {pmms:?} program(s)");
+
+        Ok(())
+    }
+
+    /// Loads the router program into the SVM.
+    fn load_program_router(&mut self) -> eyre::Result<()> {
+        self.svm
+            .add_program_from_file(magnus_router_client::programs::ROUTER_ID, format!("{}/{}.so", self.programs_path, consts::ROUTER))?;
 
         Ok(())
     }
@@ -648,6 +655,12 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         let ata = self.wallet_ata(mint);
         let account = self.svm.get_account(&ata).unwrap_or_default();
         spl_token::state::Account::unpack(&account.data).map(|a| a.amount).unwrap_or(0)
+    }
+
+    fn token_balance_norm(&self, mint: &Pubkey, decimals: u8) -> f64 {
+        let balance = self.token_balance(mint);
+
+        balance as f64 / 10_f64.powi(decimals as i32)
     }
 
     fn latest_blockhash(&self) -> solana_sdk::hash::Hash {
@@ -1086,6 +1099,16 @@ impl Misc {
         let s = String::deserialize(deserializer)?;
         Pubkey::from_str(&s).map_err(serde::de::Error::custom)
     }
+
+    /// Converts a raw token amount (in base units) to a human-readable decimal value.
+    fn to_human(amount: u64, dec: u8) -> f64 {
+        amount as f64 / 10f64.powi(dec as i32)
+    }
+
+    /// Converts a human-readable decimal value to raw token amount (in base units).
+    fn to_raw(amount: f64, dec: u8) -> u64 {
+        (amount * 10f64.powi(dec as i32)) as u64
+    }
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -1126,6 +1149,52 @@ impl<'a> Benchmark<'a> {
         self.writer.flush()?;
 
         Ok(())
+    }
+}
+
+/// Benchmark step configuration with normalized values.
+#[derive(Debug, Clone, Copy)]
+struct BenchmarkSteps {
+    /// Starting amount in base units (lamports/smallest denomination)
+    start: u64,
+    /// Ending amount in base units
+    end: u64,
+    /// Step increment in base units
+    step: u64,
+}
+
+impl BenchmarkSteps {
+    /// Creates normalized benchmark steps from human-readable values.
+    ///
+    /// Converts floating-point token amounts to their base unit representation
+    /// using the token's decimal places.
+    ///
+    /// # Arguments
+    /// * `steps` - Array of [start, end, step] in human-readable token amounts
+    /// * `dec` - Number of decimal places for the token (e.g., 9 for SOL, 6 for USDC)
+    ///
+    /// # Example
+    /// ```
+    /// // For WSOL (9 decimals): 1.0 to 100.0 with step 0.5
+    /// let steps = BenchmarkSteps::from_human([1.0, 100.0, 0.5], 9);
+    /// assert_eq!(steps.start, 1_000_000_000); // 1 SOL in lamports
+    /// ```
+    fn from_human(steps: [f64; 3], dec: u8) -> Self {
+        Self {
+            start: Misc::to_raw(steps[0], dec) as u64,
+            end: Misc::to_raw(steps[1], dec) as u64,
+            step: Misc::to_raw(steps[2], dec) as u64,
+        }
+    }
+
+    /// Returns the total number of iterations for this step configuration.
+    fn count(&self) -> u64 {
+        (self.end - self.start) / self.step + 1
+    }
+
+    /// Returns an iterator over all step values from start to end (inclusive).
+    fn iter(&self) -> impl Iterator<Item = u64> {
+        (self.start..=self.end).step_by(self.step as usize)
     }
 }
 
@@ -1171,13 +1240,7 @@ impl Run {
         let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
         let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
 
-        let steps = [
-            (steps[0] * 10f64.powi(src_dec as i32)) as u64,
-            (steps[1] * 10f64.powi(src_dec as i32)) as u64,
-            (steps[2] * 10f64.powi(src_dec as i32)) as u64,
-        ];
-        let steps_cnt = ((steps[1] - steps[0]) / steps[2] + 1) as u64;
-
+        let steps = BenchmarkSteps::from_human(*steps, src_dec);
         let time_fmt = Local::now().format("%Y%m%d-%H%M%S").to_string();
         let multi = MultiProgress::new();
 
@@ -1202,7 +1265,7 @@ impl Run {
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
                             env.load_programs(&[*pmm])?;
-                            env.setup_wallet(&src_mint, steps[1], consts::AIRDROP_AMOUNT)?;
+                            env.setup_wallet(&src_mint, steps.end, consts::AIRDROP_AMOUNT)?;
 
                             let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
 
@@ -1211,7 +1274,7 @@ impl Run {
 
                         let market = cfg.get_market(pmm).unwrap_or_else(|| panic!("{} not configured", pmm)).to_string();
 
-                        let pb = multi.add(ProgressBar::new(steps_cnt));
+                        let pb = multi.add(ProgressBar::new(steps.count()));
                         pb.set_style(
                             ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars(consts::PROGRESS_CHARS),
                         );
@@ -1221,7 +1284,7 @@ impl Run {
                         let routes: Vec<Vec<magnus_router_client::types::Route>> =
                             vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
 
-                        for amount_in in (steps[0]..=steps[1]).step_by(steps[2] as usize) {
+                        for amount_in in steps.iter() {
                             env.reset_wallet(&src_mint, amount_in)?;
                             env.load_accounts(&pmm_accounts)?;
 
@@ -1264,9 +1327,7 @@ impl Run {
                             let res = match env.send_transaction(tx) {
                                 Ok(res) => res,
                                 Err(e) => {
-                                    if warn_cnt == 0 {
-                                        pb.println(format!("[WARN] {}: {:?}", pmm, e));
-                                    }
+                                    (warn_cnt == 0).then(|| pb.println(format!("[WARN] {}: {:?}", pmm, e)));
                                     warn_cnt += 1;
                                     pb.inc(1);
                                     continue;
@@ -1281,18 +1342,16 @@ impl Run {
                                 market: &market,
                                 src_token: src_name,
                                 dst_token: dst_name,
-                                amount_in: amount_in as f64 / 10f64.powi(src_dec as i32),
-                                amount_out: amount_out as f64 / 10f64.powi(dst_dec as i32),
+                                amount_in: Misc::to_human(amount_in, src_dec),
+                                amount_out: Misc::to_human(amount_out, dst_dec),
                                 compute_units: res.compute_units_consumed,
                             });
 
-                            pb.set_message(format!("in: {:.2}", amount_in as f64 / 10f64.powi(src_dec as i32)));
+                            pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_dec)));
                             pb.inc(1);
                         }
 
-                        if warn_cnt > 0 {
-                            pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt));
-                        }
+                        (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
 
                         let filename = format!("{}/{}_{}_{}_{}.csv", datasets_path, env.slot.unwrap_or_default(), pmm, market, time);
                         Benchmark::new(records.clone(), &filename)?.save().is_ok().then(|| {
@@ -1343,7 +1402,7 @@ impl Run {
         env.load_programs(&flat_pmms)?;
         env.fetch_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?;
 
-        let norm_amount_in: Vec<u64> = amount_in.iter().map(|amount| amount * 10f64.powi(src_dec as i32)).map(|a| a as u64).collect();
+        let norm_amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
         let norm_amount_in_sum: u64 = norm_amount_in.iter().sum();
 
         // - mint only the source token's desired amount (i.e the amount we're going to swap)
@@ -1351,19 +1410,21 @@ impl Run {
         env.setup_wallet(&src_mint, norm_amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
-        let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
-        let (src_before, dst_before) = (
-            env.token_balance(&src_mint) as f64 / 10_f64.powi(src_dec as i32),
-            env.token_balance(&dst_mint) as f64 / 10_f64.powi(dst_dec as i32),
-        );
-        info!("before: {} = {:.6} | {} = {:.6} | ", src_name, src_before, dst_name, dst_before);
+        let (src_ata, src_before) = (env.wallet_ata(&src_mint), env.token_balance_norm(&src_mint, src_dec));
+        let (dst_ata, dst_before) = (env.wallet_ata(&dst_mint), env.token_balance_norm(&dst_mint, dst_dec));
 
         let routes: Vec<Vec<magnus_router_client::types::Route>> = pmms
             .iter()
             .zip(weights.iter())
             .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
             .collect();
-        info!("swapping {:?} {} via routes: {:?}", norm_amount_in, src_name, routes);
+
+        info!(
+            %src_before,
+            %dst_before,
+            ?routes,
+            "swapping {norm_amount_in:?} {src_name} -> {dst_name}"
+        );
 
         let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let mut swap_builder = SwapBuilder::new();
@@ -1396,20 +1457,19 @@ impl Run {
         });
 
         let swap_ix = construct.instruction();
-        debug!("router program id: {}", swap_ix.program_id);
-
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");
         let amount_out = env.get_event_amount_out(&res);
 
-        let (src_after, dst_after) = (
-            env.token_balance(&src_mint) as f64 / 10_f64.powi(src_dec as i32),
-            env.token_balance(&dst_mint) as f64 / 10_f64.powi(dst_dec as i32),
-        );
+        let (src_after, dst_after) = (env.token_balance_norm(&src_mint, src_dec), env.token_balance_norm(&dst_mint, dst_dec));
 
-        info!("|SWAP EXECUTED| compute units consumed: {:?} | amount_out: {}", res.compute_units_consumed, amount_out);
-        info!("after: {} = {:.6} | {} = {:.6} | ", src_name, src_after, dst_name, dst_after);
-        info!("diff:  {} spent = {:.6} | {} received = {:.6}", src_name, src_before - src_after, dst_name, dst_after - dst_before);
+        info!(
+            compute_units = res.compute_units_consumed,
+            amount_out,
+            "{src_name} {src_before:.6} -> {src_after:.6} (spent {:.6}), {dst_name} {dst_before:.6} -> {dst_after:.6} (received {:.6})",
+            src_before - src_after,
+            dst_after - dst_before,
+        );
 
         Ok(())
     }
