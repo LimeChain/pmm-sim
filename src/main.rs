@@ -1490,134 +1490,410 @@ fn main() -> eyre::Result<()> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_parse_nested_pmms_json_single() {
-        let input = r#"[["humidifi"]]"#;
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi]]);
-    }
+    mod cli {
+        use super::*;
+        #[test]
+        fn test_parse_nested_pmms_json_single() {
+            let input = r#"[["humidifi"]]"#;
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_json_multiple() {
-        let input = r#"[["humidifi","obric-v2"],["zerofi"]]"#;
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_json_multiple() {
+            let input = r#"[["humidifi","obric-v2"],["zerofi"]]"#;
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_single() {
-        let input = "[[humidifi]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi]]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_single() {
+            let input = "[[humidifi]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_single_route_multiple_pmms() {
-        let input = "[[humidifi,obric-v2]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2]]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_single_route_multiple_pmms() {
+            let input = "[[humidifi,obric-v2]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_multiple_routes() {
-        let input = "[[humidifi,obric-v2],[zerofi]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_multiple_routes() {
+            let input = "[[humidifi,obric-v2],[zerofi]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_three_routes() {
-        let input = "[[humidifi],[obric-v2,solfi-v2],[zerofi]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi], vec![Dex::ObricV2, Dex::SolfiV2], vec![Dex::Zerofi],]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_three_routes() {
+            let input = "[[humidifi],[obric-v2,solfi-v2],[zerofi]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi], vec![Dex::ObricV2, Dex::SolfiV2], vec![Dex::Zerofi],]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_all_pmms() {
-        let input = "[[raydium-cl-v2,raydium-cp],[obric-v2,solfi-v2,zerofi,humidifi]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::RaydiumClV2, Dex::RaydiumCp], vec![Dex::ObricV2, Dex::SolfiV2, Dex::Zerofi, Dex::Humidifi],]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_all_pmms() {
+            let input = "[[raydium-cl-v2,raydium-cp],[obric-v2,solfi-v2,zerofi,humidifi]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::RaydiumClV2, Dex::RaydiumCp], vec![Dex::ObricV2, Dex::SolfiV2, Dex::Zerofi, Dex::Humidifi],]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_no_quotes_with_spaces() {
-        let input = "[[ humidifi , obric-v2 ],[ zerofi ]]";
-        let result = CliArgs::parse_nested_pmms(input).unwrap();
-        assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
-    }
+        #[test]
+        fn test_parse_nested_pmms_no_quotes_with_spaces() {
+            let input = "[[ humidifi , obric-v2 ],[ zerofi ]]";
+            let result = CliArgs::parse_nested_pmms(input).unwrap();
+            assert_eq!(result, vec![vec![Dex::Humidifi, Dex::ObricV2], vec![Dex::Zerofi]]);
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_invalid_pmm() {
-        let input = "[[humidifi,invalid-dex]]";
-        let result = CliArgs::parse_nested_pmms(input);
-        assert!(result.is_err());
-    }
+        #[test]
+        fn test_parse_nested_pmms_invalid_pmm() {
+            let input = "[[humidifi,invalid-dex]]";
+            let result = CliArgs::parse_nested_pmms(input);
+            assert!(result.is_err());
+        }
 
-    #[test]
-    fn test_parse_nested_pmms_invalid_format() {
-        let input = "[humidifi]"; // not nested
-        let result = CliArgs::parse_nested_pmms(input);
-        assert!(result.is_err());
-    }
+        #[test]
+        fn test_parse_nested_pmms_invalid_format() {
+            let input = "[humidifi]"; // not nested
+            let result = CliArgs::parse_nested_pmms(input);
+            assert!(result.is_err());
+        }
 
-    #[test]
-    fn test_parse_nested_weights_single() {
-        let input = "[[100]]";
-        let result = CliArgs::parse_nested_weights(input).unwrap();
-        assert_eq!(result, vec![vec![100u8]]);
-    }
+        #[test]
+        fn test_parse_nested_weights_single() {
+            let input = "[[100]]";
+            let result = CliArgs::parse_nested_weights(input).unwrap();
+            assert_eq!(result, vec![vec![100u8]]);
+        }
 
-    #[test]
-    fn test_parse_nested_weights_multiple() {
-        let input = "[[50,50],[100]]";
-        let result = CliArgs::parse_nested_weights(input).unwrap();
-        assert_eq!(result, vec![vec![50u8, 50u8], vec![100u8]]);
-    }
+        #[test]
+        fn test_parse_nested_weights_multiple() {
+            let input = "[[50,50],[100]]";
+            let result = CliArgs::parse_nested_weights(input).unwrap();
+            assert_eq!(result, vec![vec![50u8, 50u8], vec![100u8]]);
+        }
 
-    #[test]
-    fn test_parse_nested_weights_complex() {
-        let input = "[[30,30,40],[60,40],[100]]";
-        let result = CliArgs::parse_nested_weights(input).unwrap();
-        assert_eq!(result, vec![vec![30u8, 30u8, 40u8], vec![60u8, 40u8], vec![100u8]]);
-    }
+        #[test]
+        fn test_parse_nested_weights_complex() {
+            let input = "[[30,30,40],[60,40],[100]]";
+            let result = CliArgs::parse_nested_weights(input).unwrap();
+            assert_eq!(result, vec![vec![30u8, 30u8, 40u8], vec![60u8, 40u8], vec![100u8]]);
+        }
 
-    #[test]
-    fn test_pmms_and_weights_match() {
-        let pmms_input = "[[humidifi,obric-v2],[zerofi]]";
-        let weights_input = "[[50,50],[100]]";
+        #[test]
+        fn test_pmms_and_weights_match() {
+            let pmms_input = "[[humidifi,obric-v2],[zerofi]]";
+            let weights_input = "[[50,50],[100]]";
 
-        let pmms = CliArgs::parse_nested_pmms(pmms_input).unwrap();
-        let weights = CliArgs::parse_nested_weights(weights_input).unwrap();
+            let pmms = CliArgs::parse_nested_pmms(pmms_input).unwrap();
+            let weights = CliArgs::parse_nested_weights(weights_input).unwrap();
 
-        assert_eq!(pmms.len(), weights.len());
-        for (d, w) in pmms.iter().zip(weights.iter()) {
-            assert_eq!(d.len(), w.len());
+            assert_eq!(pmms.len(), weights.len());
+            for (d, w) in pmms.iter().zip(weights.iter()) {
+                assert_eq!(d.len(), w.len());
+            }
+        }
+
+        #[test]
+        fn test_parse_step_valid() {
+            let result = CliArgs::parse_steps("1.0,100.0,0.5").unwrap();
+            assert_eq!(result, [1.0, 100.0, 0.5]);
+        }
+
+        #[test]
+        fn test_parse_step_with_spaces() {
+            let result = CliArgs::parse_steps("1.0, 100.0, 0.5").unwrap();
+            assert_eq!(result, [1.0, 100.0, 0.5]);
+        }
+
+        #[test]
+        fn test_parse_step_start_gte_end() {
+            let result = CliArgs::parse_steps("100.0,50.0,1.0");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("start must be less than end"));
+        }
+
+        #[test]
+        fn test_parse_step_negative_step() {
+            let result = CliArgs::parse_steps("1.0,100.0,-1.0");
+            assert!(result.is_err());
+            assert!(result.unwrap_err().contains("step must be positive"));
         }
     }
 
-    #[test]
-    fn test_parse_step_valid() {
-        let result = CliArgs::parse_steps("1.0,100.0,0.5").unwrap();
-        assert_eq!(result, [1.0, 100.0, 0.5]);
+    mod environment {
+        use super::*;
+
+        fn default_cfg() -> PMMCfg {
+            PMMCfg::default()
+        }
+
+        #[test]
+        fn test_new_generates_unique_wallet() {
+            let env1 = Environment::new("", "", None, default_cfg(), None).unwrap();
+            let env2 = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            assert_ne!(env1.wallet_pubkey(), env2.wallet_pubkey());
+        }
+
+        #[test]
+        fn test_new_without_slot_leaves_slot_none() {
+            let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            assert!(env.slot.is_none());
+        }
+
+        #[test]
+        fn test_new_with_slot_sets_slot() {
+            let slot = 12345678u64;
+            let env = Environment::new("", "", None, default_cfg(), Some(slot)).unwrap();
+
+            assert_eq!(env.slot, Some(slot));
+        }
+
+        #[test]
+        fn test_new_without_mints_leaves_mints_none() {
+            let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            assert!(env.mints.is_none());
+        }
+
+        #[test]
+        fn test_new_with_mints_creates_mint_accounts() {
+            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+
+            let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+
+            assert!(env.mints.is_some());
+            assert_eq!(env.mints.unwrap().len(), 2);
+
+            // verify mint accounts exist in SVM
+            let wsol_account = env.svm.get_account(&consts::WSOL);
+            let usdc_account = env.svm.get_account(&consts::USDC);
+
+            assert!(wsol_account.is_some());
+            assert!(usdc_account.is_some());
+
+            // verify mint account data is valid
+            let wsol_mint = spl_token::state::Mint::unpack(&wsol_account.unwrap().data).unwrap();
+            let usdc_mint = spl_token::state::Mint::unpack(&usdc_account.unwrap().data).unwrap();
+
+            assert_eq!(wsol_mint.decimals, consts::WSOL_DECIMALS);
+            assert_eq!(usdc_mint.decimals, consts::USDC_DECIMALS);
+            assert!(wsol_mint.is_initialized);
+            assert!(usdc_mint.is_initialized);
+        }
+
+        #[test]
+        fn test_wallet_ata_derives_correct_address() {
+            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS)];
+            let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+
+            let expected_ata = get_associated_token_address(&env.wallet_pubkey(), &consts::WSOL);
+            let actual_ata = env.wallet_ata(&consts::WSOL);
+
+            assert_eq!(actual_ata, expected_ata);
+        }
+
+        #[test]
+        fn test_setup_wallet_creates_atas_and_funds() {
+            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+            let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+
+            let src_amount = 1_000_000_000u64; // 1 SOL
+            let airdrop = 10_000_000_000u64; // 10 SOL for fees
+
+            env.setup_wallet(&consts::WSOL, src_amount, airdrop).unwrap();
+
+            // verify src token balance is correct
+            assert_eq!(env.token_balance(&consts::WSOL), src_amount);
+
+            // verify dst token balance is zero
+            assert_eq!(env.token_balance(&consts::USDC), 0);
+
+            // verify SOL was airdropped
+            let wallet_account = env.svm.get_account(&env.wallet_pubkey());
+            assert!(wallet_account.is_some());
+            assert!(wallet_account.unwrap().lamports >= airdrop);
+        }
+
+        #[test]
+        fn test_reset_wallet_restores_balances() {
+            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+            let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+
+            env.setup_wallet(&consts::WSOL, 1_000_000_000, 10_000_000_000).unwrap();
+
+            // simulate a swap by manually changing balances
+            let wsol_ata = env.wallet_ata(&consts::WSOL);
+            let usdc_ata = env.wallet_ata(&consts::USDC);
+            env.svm.set_account(wsol_ata, Misc::mk_ata(&consts::WSOL, &env.wallet_pubkey(), 500_000_000)).unwrap();
+            env.svm.set_account(usdc_ata, Misc::mk_ata(&consts::USDC, &env.wallet_pubkey(), 100_000_000)).unwrap();
+
+            // seset wallet
+            let new_amount = 2_000_000_000u64;
+            env.reset_wallet(&consts::WSOL, new_amount).unwrap();
+
+            // verify balances are reset
+            assert_eq!(env.token_balance(&consts::WSOL), new_amount);
+            assert_eq!(env.token_balance(&consts::USDC), 0);
+        }
+
+        #[test]
+        fn test_token_balance_returns_zero_for_nonexistent_ata() {
+            let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            assert_eq!(env.token_balance(&consts::WSOL), 0);
+        }
+
+        #[test]
+        fn test_token_balance_norm_converts_correctly() {
+            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS)];
+            let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+
+            let raw_amount = 1_500_000_000u64; // 1.5 SOL in lamports
+            env.setup_wallet(&consts::WSOL, raw_amount, 10_000_000_000).unwrap();
+
+            let normalized = env.token_balance_norm(&consts::WSOL, consts::WSOL_DECIMALS);
+
+            assert!((normalized - 1.5).abs() < f64::EPSILON);
+        }
+
+        #[test]
+        fn test_latest_blockhash_returns_valid_hash() {
+            let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            let blockhash = env.latest_blockhash();
+
+            // should not be the default/zero hash
+            assert_ne!(blockhash, solana_sdk::hash::Hash::default());
+        }
+
+        #[test]
+        fn test_load_accounts_sets_accounts_in_svm() {
+            let mut env = Environment::new("", "", None, default_cfg(), None).unwrap();
+
+            let pubkey = Pubkey::new_unique();
+            let account =
+                Account { lamports: 1_000_000, data: vec![1, 2, 3, 4], owner: Pubkey::new_unique(), executable: false, rent_epoch: 0 };
+
+            env.load_accounts(&vec![(pubkey, account.clone())]).unwrap();
+
+            let loaded = env.svm.get_account(&pubkey).unwrap();
+            assert_eq!(loaded.lamports, account.lamports);
+            assert_eq!(loaded.data, account.data);
+            assert_eq!(loaded.owner, account.owner);
+        }
     }
 
-    #[test]
-    fn test_parse_step_with_spaces() {
-        let result = CliArgs::parse_steps("1.0, 100.0, 0.5").unwrap();
-        assert_eq!(result, [1.0, 100.0, 0.5]);
-    }
+    mod misc {
+        use super::*;
 
-    #[test]
-    fn test_parse_step_start_gte_end() {
-        let result = CliArgs::parse_steps("100.0,50.0,1.0");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("start must be less than end"));
-    }
+        #[test]
+        fn test_to_human_wsol_decimals() {
+            let lamports = 1_500_000_000u64;
+            let sol = Misc::to_human(lamports, 9);
+            assert_eq!(sol, 1.5);
+        }
 
-    #[test]
-    fn test_parse_step_negative_step() {
-        let result = CliArgs::parse_steps("1.0,100.0,-1.0");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("step must be positive"));
+        #[test]
+        fn test_to_human_usdc_decimals() {
+            let raw = 1_500_000u64;
+            let usdc = Misc::to_human(raw, 6);
+            assert_eq!(usdc, 1.5);
+        }
+
+        #[test]
+        fn test_to_human_zero() {
+            assert_eq!(Misc::to_human(0, 9), 0.0);
+        }
+
+        #[test]
+        fn test_to_raw_wsol_decimals() {
+            let sol = 1.5f64;
+            let lamports = Misc::to_raw(sol, 9);
+            assert_eq!(lamports, 1_500_000_000);
+        }
+
+        #[test]
+        fn test_to_raw_usdc_decimals() {
+            let usdc = 1.5f64;
+            let raw = Misc::to_raw(usdc, 6);
+            assert_eq!(raw, 1_500_000);
+        }
+
+        #[test]
+        fn test_to_raw_zero() {
+            assert_eq!(Misc::to_raw(0.0, 9), 0);
+        }
+
+        #[test]
+        fn test_to_human_to_raw_roundtrip() {
+            let original = 123_456_789u64;
+            let decimals = 9u8;
+
+            let human = Misc::to_human(original, decimals);
+            let back = Misc::to_raw(human, decimals);
+
+            assert_eq!(back, original);
+        }
+
+        #[test]
+        fn test_mk_mint_acc_creates_valid_mint() {
+            let decimals = 9u8;
+            let account = Misc::mk_mint_acc(decimals);
+
+            assert_eq!(account.owner, spl_token::id());
+            assert!(!account.executable);
+
+            let mint = spl_token::state::Mint::unpack(&account.data).unwrap();
+            assert_eq!(mint.decimals, decimals);
+            assert!(mint.is_initialized);
+            assert_eq!(mint.supply, u64::MAX);
+            assert!(mint.mint_authority.is_none());
+            assert!(mint.freeze_authority.is_none());
+        }
+
+        #[test]
+        fn test_mk_mint_acc_different_decimals() {
+            for decimals in [0, 6, 9, 18] {
+                let account = Misc::mk_mint_acc(decimals);
+                let mint = spl_token::state::Mint::unpack(&account.data).unwrap();
+                assert_eq!(mint.decimals, decimals);
+            }
+        }
+
+        #[test]
+        fn test_mk_ata_creates_valid_token_account() {
+            let mint = Pubkey::new_unique();
+            let owner = Pubkey::new_unique();
+            let amount = 1_000_000u64;
+
+            let account = Misc::mk_ata(&mint, &owner, amount);
+
+            // verify owner is token program
+            assert_eq!(account.owner, spl_token::id());
+
+            // verify data is valid token account
+            let token_acc = spl_token::state::Account::unpack(&account.data).unwrap();
+            assert_eq!(token_acc.mint, mint);
+            assert_eq!(token_acc.owner, owner);
+            assert_eq!(token_acc.amount, amount);
+            assert_eq!(token_acc.state, spl_token::state::AccountState::Initialized);
+        }
+
+        #[test]
+        fn test_mk_ata_zero_balance() {
+            let mint = Pubkey::new_unique();
+            let owner = Pubkey::new_unique();
+
+            let account = Misc::mk_ata(&mint, &owner, 0);
+            let token_acc = spl_token::state::Account::unpack(&account.data).unwrap();
+
+            assert_eq!(token_acc.amount, 0);
+        }
     }
 }
