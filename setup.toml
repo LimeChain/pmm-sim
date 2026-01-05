@@ -1,44 +1,44 @@
 # https://solscan.io/account/FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH
 [humidifi]
 market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
-base_token_acc = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
-quote_token_acc = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
 ## other humidifi markets
 
 # https://solscan.io/account/DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW
 # market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
-# base_token_acc = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
-# quote_token_acc = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+# base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+# quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
 
 # https://solscan.io/account/6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ
 # market = "6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ"
-# base_token_acc = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
-# quote_token_acc = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+# base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+# quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
 # market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
-# base_token_acc = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
-# quote_token_acc = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
+# base_ta = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
+# quote_ta = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
 
 # https://solscan.io/account/FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 [tessera]
 market = "FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n"
-base_token_acc = "5pVN5XZB8cYBjNLFrsBCPWkCQBan5K5Mq2dWGzwPgGJV"
-quote_token_acc = "9t4P5wMwfFkyn92Z7hf463qYKEZf8ERVZsGBEPNp8uJx"
+base_ta = "5pVN5XZB8cYBjNLFrsBCPWkCQBan5K5Mq2dWGzwPgGJV"
+quote_ta = "9t4P5wMwfFkyn92Z7hf463qYKEZf8ERVZsGBEPNp8uJx"
 global_state = "8ekCy2jHHUbW2yeNGFWYJT9Hm9FW7SvZcZK66dSZCDiF"
 
 # https://solscan.io/account/4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K
 [goonfi]
 market = "4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K"
-base_token_acc = "pKiUC9hDXv52xqU1p3BKypV9AQjAMgfZUGRnoBsdkKm"
-quote_token_acc = "Gsy5Zr7Vxn5KckAbduPHHGR1qzPJ4w3GSYmcinWAkhrC"
+base_ta = "pKiUC9hDXv52xqU1p3BKypV9AQjAMgfZUGRnoBsdkKm"
+quote_ta = "Gsy5Zr7Vxn5KckAbduPHHGR1qzPJ4w3GSYmcinWAkhrC"
 blacklist = "7XqYD6DEGmDXooB1E8NNRWV9pWAmm1z6WYpsfjnABTUz"
 
 # https://solscan.io/account/65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc
 [solfi-v2]
 market = "65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc"
-base_token_acc = "CRo8DBwrmd97DJfAnvCv96tZPL5Mktf2NZy2ZnhDer1A"
-quote_token_acc = "GhFfLFSprPpfoRaWakPMmJTMJBHuz6C694jYwxy2dAic"
+base_ta = "CRo8DBwrmd97DJfAnvCv96tZPL5Mktf2NZy2ZnhDer1A"
+quote_ta = "GhFfLFSprPpfoRaWakPMmJTMJBHuz6C694jYwxy2dAic"
 cfg = "FmxXDSR9WvpJTCh738D1LEDuhMoA8geCtZgHb3isy7Dp"
 oracle = "2ny7eGyZCoeEVTkNLf5HcnJFBKkyA4p4gcrtb3b8y8ou"
 

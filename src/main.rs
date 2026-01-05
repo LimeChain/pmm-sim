@@ -61,7 +61,7 @@ pub mod consts {
     pub const PROGRESS_CHARS: &str = "█▓░";
 
     // used to pay for tx fees
-    pub const AIRDROP_AMOUNT: u64 = 1_000_000_000;
+    pub const AIRDROP_AMOUNT: u64 = 100_000_000_000;
     // the maximum number of compute units a tx can consume
     pub const COMPUTE_UNITS_LIMIT: u64 = 20_000_000;
 }
@@ -151,25 +151,25 @@ macro_rules! define_dex_configs {
 define_dex_configs! {
     Humidifi => HumidifiCfg : humidifi ("humidifi") {
         market,
-        base_token_acc,
-        quote_token_acc,
+        base_ta,
+        quote_ta,
     },
     Tessera => TesseraCfg : tessera ("tessera") {
         market,
-        base_token_acc,
-        quote_token_acc,
+        base_ta,
+        quote_ta,
         global_state,
     },
     Goonfi => GoonfiCfg : goonfi ("goonfi") {
         market,
-        base_token_acc,
-        quote_token_acc,
+        base_ta,
+        quote_ta,
         blacklist,
     },
     SolfiV2 => SolfiV2Cfg : solfi_v2 ("solfi-v2") {
         market,
-        base_token_acc,
-        quote_token_acc,
+        base_ta,
+        quote_ta,
         cfg,
         oracle,
     },
@@ -508,6 +508,10 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             }
         }
 
+        if let Some(slot) = slot {
+            svm.warp_to_slot(slot);
+        }
+
         Ok(Environment { svm, slot, wallet, programs_path, accounts_path, mints, cfg })
     }
 
@@ -526,14 +530,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// 2. Sets the source mint's ATA balance to `src_amount`
     /// 3. Airdrops SOL to the wallet for fees
     fn setup_wallet(&mut self, src_mint: &Pubkey, src_amount: u64, airdrop_amount: u64) -> eyre::Result<()> {
-        if let Some(mints) = self.mints {
-            for (mint, _) in mints {
-                let ata = self.wallet_ata(mint);
-                let amount = if mint == src_mint { src_amount } else { 0 };
-                self.svm.set_account(ata, Misc::mk_ata(mint, &self.wallet_pubkey(), amount))?;
-            }
-        }
-
+        self.reset_wallet(src_mint, src_amount)?;
         self.svm.airdrop(&self.wallet_pubkey(), airdrop_amount).expect("airdrop failed");
 
         Ok(())
@@ -624,7 +621,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             self.load_accounts(&accs)?;
         }
 
-        info!("loaded {pmms:?} accounts");
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
             self.slot = Some(s);
@@ -641,7 +637,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             self.load_accounts(&accs)?;
         }
 
-        info!("loaded {pmms:?} accounts");
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);
 
@@ -698,8 +693,8 @@ pub struct ConstructSwap<'a> {
     cfg: PMMCfg,
     builder: &'a mut SwapBuilder,
     payer: Pubkey,
-    sta: Pubkey,
-    dta: Pubkey,
+    src_ta: Pubkey,
+    dst_ta: Pubkey,
     src_mint: Pubkey,
     dst_mint: Pubkey,
 }
@@ -733,13 +728,13 @@ impl<'a> ConstructSwap<'a> {
             self.builder.add_remaining_accounts(&vec![
                 AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
                 AccountMeta::new(self.payer, true),
-                AccountMeta::new(self.sta, false),
-                AccountMeta::new(self.dta, false),
+                AccountMeta::new(self.src_ta, false),
+                AccountMeta::new(self.dst_ta, false),
                 AccountMeta::new(cfg.market, false),
                 AccountMeta::new_readonly(cfg.oracle, false),
                 AccountMeta::new_readonly(cfg.cfg, false),
-                AccountMeta::new(cfg.base_token_acc, false),
-                AccountMeta::new(cfg.quote_token_acc, false),
+                AccountMeta::new(cfg.base_ta, false),
+                AccountMeta::new(cfg.quote_ta, false),
                 AccountMeta::new_readonly(consts::WSOL, false),
                 AccountMeta::new_readonly(consts::USDC, false),
                 AccountMeta::new_readonly(spl_token::id(), false),
@@ -759,12 +754,12 @@ impl<'a> ConstructSwap<'a> {
         self.builder.add_remaining_accounts(&vec![
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.sta, false),
-            AccountMeta::new(self.dta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
             AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false),
             AccountMeta::new(cfg.market, false),
-            AccountMeta::new(cfg.base_token_acc, false),
-            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new(cfg.base_ta, false),
+            AccountMeta::new(cfg.quote_ta, false),
             AccountMeta::new_readonly(sysvar::clock::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
@@ -779,8 +774,8 @@ impl<'a> ConstructSwap<'a> {
         self.builder.add_remaining_accounts(&vec![
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.sta, false),
-            AccountMeta::new(self.dta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
             AccountMeta::new(cfg.market, false),
             AccountMeta::new(cfg.vault_info_base, false),
             AccountMeta::new(cfg.vault_base, false),
@@ -799,8 +794,8 @@ impl<'a> ConstructSwap<'a> {
         self.builder.add_remaining_accounts(&vec![
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.sta, false),
-            AccountMeta::new(self.dta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
             AccountMeta::new(cfg.market, false),
             AccountMeta::new_readonly(cfg.second_ref_oracle, false),
             AccountMeta::new_readonly(cfg.third_ref_oracle, false),
@@ -821,12 +816,12 @@ impl<'a> ConstructSwap<'a> {
         self.builder.add_remaining_accounts(&vec![
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.sta, false),
-            AccountMeta::new(self.dta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
             AccountMeta::new_readonly(cfg.global_state, false),
             AccountMeta::new(cfg.market, false),
-            AccountMeta::new(cfg.base_token_acc, false),
-            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new(cfg.base_ta, false),
+            AccountMeta::new(cfg.quote_ta, false),
             AccountMeta::new_readonly(self.src_mint, false),
             AccountMeta::new_readonly(self.dst_mint, false),
             AccountMeta::new_readonly(spl_token::id(), false),
@@ -845,12 +840,12 @@ impl<'a> ConstructSwap<'a> {
         self.builder.add_remaining_accounts(&vec![
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
-            AccountMeta::new(self.sta, false),
-            AccountMeta::new(self.dta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
             AccountMeta::new_readonly(goonfi_param, false),
             AccountMeta::new(cfg.market, false),
-            AccountMeta::new(cfg.base_token_acc, false),
-            AccountMeta::new(cfg.quote_token_acc, false),
+            AccountMeta::new(cfg.base_ta, false),
+            AccountMeta::new(cfg.quote_ta, false),
             AccountMeta::new_readonly(cfg.blacklist, false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
@@ -967,7 +962,7 @@ impl Misc {
         Ok((slot, res))
     }
 
-    /// Persists an account to disk in JSON format for later reuse.
+    /// Persists an account to disk in JSON for later reuse.
     fn save_account_to_disk(accounts_path: &str, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
         let filename = format!("{}_{}.json", dex, pubkey);
         let accounts_path = format!("{}", accounts_path);
@@ -1207,7 +1202,6 @@ impl Run {
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
                             env.load_programs(&[*pmm])?;
-                            env.load_accounts(&pmm_accounts.clone())?;
                             env.setup_wallet(&src_mint, steps[1], consts::AIRDROP_AMOUNT)?;
 
                             let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
@@ -1226,8 +1220,11 @@ impl Run {
                         let (mut records, mut warn_cnt) = (vec![], u64::default());
                         let routes: Vec<Vec<magnus_router_client::types::Route>> =
                             vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
+
                         for amount_in in (steps[0]..=steps[1]).step_by(steps[2] as usize) {
                             env.reset_wallet(&src_mint, amount_in)?;
+                            env.load_accounts(&pmm_accounts)?;
+
                             let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
 
                             let mut swap_builder = SwapBuilder::new();
@@ -1248,8 +1245,8 @@ impl Run {
                                 cfg: cfg.clone(),
                                 builder: swap,
                                 payer: env.wallet_pubkey(),
-                                sta: src_ata,
-                                dta: dst_ata,
+                                src_ta: src_ata,
+                                dst_ta: dst_ata,
                                 src_mint,
                                 dst_mint,
                             };
@@ -1387,8 +1384,8 @@ impl Run {
             cfg: self.cfg.clone(),
             builder: swap,
             payer: env.wallet_pubkey(),
-            sta: src_ata,
-            dta: dst_ata,
+            src_ta: src_ata,
+            dst_ta: dst_ata,
             src_mint,
             dst_mint,
         };
@@ -1412,7 +1409,7 @@ impl Run {
 
         info!("|SWAP EXECUTED| compute units consumed: {:?} | amount_out: {}", res.compute_units_consumed, amount_out);
         info!("after: {} = {:.6} | {} = {:.6} | ", src_name, src_after, dst_name, dst_after);
-        info!("diff: {} spent = {:.6} | {} received = {:.6}", src_name, src_before - src_after, dst_name, dst_after - dst_before);
+        info!("diff:  {} spent = {:.6} | {} received = {:.6}", src_name, src_before - src_after, dst_name, dst_after - dst_before);
 
         Ok(())
     }
