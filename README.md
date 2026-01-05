@@ -96,7 +96,7 @@ Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/pl
 
 ```
 
-./scripts/plot.py ./datasets/389141713\*
+./scripts/plot.py ./datasets/389141713*
 
 ```
 
@@ -127,19 +127,19 @@ Check out the CLI subcommands for additional clues (i.e `pmm-sim single --help`)
 $ pmm-sim --help
 
 Simulation environment for Solana's Proprietary AMMs.
-Simulate swaps and Benchmark performance across _any_ of the major Solana Prop AMMs.
+Simulate swaps and Benchmark performance across *any* of the major Solana Prop AMMs.
 
 Usage: pmm-sim <COMMAND>
 
 Commands:
-single Run a single swap route across one or more Prop AMMs with specified weights.
-multi Execute multiple swap routes across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
-fetch-accounts Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).
-benchmark Benchmark swaps for any one of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and steps size
-help Print this message or the help of the given subcommand(s)
+  single          Run a single swap route across one or more Prop AMMs with specified weights.
+  multi           Execute multiple swap routes across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
+  fetch-accounts  Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).
+  benchmark       Benchmark swaps for any one of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and step size
+  help            Print this message or the help of the given subcommand(s)
 
 Options:
--h, --help Print help
--V, --version Print version
+  -h, --help     Print help
+  -V, --version  Print version
 
 ```

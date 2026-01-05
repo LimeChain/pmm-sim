@@ -738,7 +738,7 @@ impl<'a> ConstructSwap<'a> {
 
     fn attach_solfiv2_accs(&mut self) {
         if let Some(cfg) = &self.cfg.solfi_v2 {
-            self.builder.add_remaining_accounts(&vec![
+            self.builder.add_remaining_accounts(&[
                 AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
                 AccountMeta::new(self.payer, true),
                 AccountMeta::new(self.src_ta, false),
@@ -764,7 +764,7 @@ impl<'a> ConstructSwap<'a> {
             panic!("Humidifi config is missing, cannot attach accounts.");
         };
 
-        self.builder.add_remaining_accounts(&vec![
+        self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.src_ta, false),
@@ -784,7 +784,7 @@ impl<'a> ConstructSwap<'a> {
             panic!("Zerofi config is missing, cannot attach accounts.");
         };
 
-        self.builder.add_remaining_accounts(&vec![
+        self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.src_ta, false),
@@ -804,7 +804,7 @@ impl<'a> ConstructSwap<'a> {
             panic!("ObricV2 config is missing, cannot attach accounts.");
         };
 
-        self.builder.add_remaining_accounts(&vec![
+        self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.src_ta, false),
@@ -826,7 +826,7 @@ impl<'a> ConstructSwap<'a> {
             panic!("Tessera config is missing, cannot attach accounts.");
         };
 
-        self.builder.add_remaining_accounts(&vec![
+        self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.src_ta, false),
@@ -850,7 +850,7 @@ impl<'a> ConstructSwap<'a> {
 
         let goonfi_param = Pubkey::new_from_array([0u8; 32]);
 
-        self.builder.add_remaining_accounts(&vec![
+        self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()), false),
             AccountMeta::new(self.payer, true),
             AccountMeta::new(self.src_ta, false),
@@ -978,7 +978,6 @@ impl Misc {
     /// Persists an account to disk in JSON for later reuse.
     fn save_account_to_disk(accounts_path: &str, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
         let filename = format!("{}_{}.json", dex, pubkey);
-        let accounts_path = format!("{}", accounts_path);
         let data_dir = Path::new(&accounts_path);
 
         if !data_dir.exists() {
@@ -1155,11 +1154,8 @@ impl<'a> Benchmark<'a> {
 /// Benchmark step configuration with normalized values.
 #[derive(Debug, Clone, Copy)]
 struct BenchmarkSteps {
-    /// Starting amount in base units (lamports/smallest denomination)
     start: u64,
-    /// Ending amount in base units
     end: u64,
-    /// Step increment in base units
     step: u64,
 }
 
@@ -1180,11 +1176,7 @@ impl BenchmarkSteps {
     /// assert_eq!(steps.start, 1_000_000_000); // 1 SOL in lamports
     /// ```
     fn from_human(steps: [f64; 3], dec: u8) -> Self {
-        Self {
-            start: Misc::to_raw(steps[0], dec) as u64,
-            end: Misc::to_raw(steps[1], dec) as u64,
-            step: Misc::to_raw(steps[2], dec) as u64,
-        }
+        Self { start: Misc::to_raw(steps[0], dec), end: Misc::to_raw(steps[1], dec), step: Misc::to_raw(steps[2], dec) }
     }
 
     /// Returns the total number of iterations for this step configuration.
