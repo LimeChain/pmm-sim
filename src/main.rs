@@ -648,36 +648,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
-    /// Persists an account to disk in JSON format for later reuse.
-    fn save_account_to_disk(&self, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
-        let filename = format!("{}_{}.json", dex, pubkey);
-        let accounts_path = format!("{}", self.accounts_path);
-        let data_dir = Path::new(&accounts_path);
-
-        if !data_dir.exists() {
-            fs::create_dir_all(data_dir)?;
-        }
-
-        let file_path = data_dir.join(filename);
-
-        let value = serde_json::json!({
-            "pubkey": pubkey.to_string(),
-            "slot": slot,
-            "account": {
-                "lamports": account.lamports,
-                "data": [general_purpose::STANDARD.encode(&account.data), "base64"],
-                "owner": account.owner.to_string(),
-                "executable": account.executable,
-                "rentEpoch": account.rent_epoch,
-            }
-        });
-
-        let mut file = File::create(file_path)?;
-        file.write_all(serde_json::to_string_pretty(&value)?.as_bytes())?;
-
-        Ok(())
-    }
-
     /// Returns the token balance for the wallet's ATA of the given mint.
     fn token_balance(&self, mint: &Pubkey) -> u64 {
         let ata = self.wallet_ata(mint);
@@ -997,6 +967,36 @@ impl Misc {
         Ok((slot, res))
     }
 
+    /// Persists an account to disk in JSON format for later reuse.
+    fn save_account_to_disk(accounts_path: &str, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
+        let filename = format!("{}_{}.json", dex, pubkey);
+        let accounts_path = format!("{}", accounts_path);
+        let data_dir = Path::new(&accounts_path);
+
+        if !data_dir.exists() {
+            fs::create_dir_all(data_dir)?;
+        }
+
+        let file_path = data_dir.join(filename);
+
+        let value = serde_json::json!({
+            "pubkey": pubkey.to_string(),
+            "slot": slot,
+            "account": {
+                "lamports": account.lamports,
+                "data": [general_purpose::STANDARD.encode(&account.data), "base64"],
+                "owner": account.owner.to_string(),
+                "executable": account.executable,
+                "rentEpoch": account.rent_epoch,
+            }
+        });
+
+        let mut file = File::create(file_path)?;
+        file.write_all(serde_json::to_string_pretty(&value)?.as_bytes())?;
+
+        Ok(())
+    }
+
     /// Fetches PMM accounts from an RPC node in a single atomic request.
     ///
     /// Collects all account pubkeys from the provided DEX configurations and fetches
@@ -1156,12 +1156,10 @@ impl Run {
         let Command::FetchAccounts { http_url, accounts_path, pmms, .. } = &self.args.command else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
-        let env = Environment::new("", accounts_path, None, self.cfg.clone(), None)?;
-
         let (slot, fetched) = Misc::fetch_pmm_accounts(pmms, &rpc_client, &self.cfg)?;
         for (dex, accounts) in fetched {
             for (pubkey, account) in accounts {
-                env.save_account_to_disk(&dex, &pubkey, &account, slot)?;
+                Misc::save_account_to_disk(accounts_path, &dex, &pubkey, &account, slot)?;
                 info!("saved account {pubkey} for {dex}");
             }
         }
@@ -1185,7 +1183,7 @@ impl Run {
         ];
         let steps_cnt = ((steps[1] - steps[0]) / steps[2] + 1) as u64;
 
-        let time = Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let time_fmt = Local::now().format("%Y%m%d-%H%M%S").to_string();
         let multi = MultiProgress::new();
 
         let (slot, accs_map) = if common.jit_accounts {
@@ -1199,7 +1197,7 @@ impl Run {
             let handles: Vec<_> = pmms
                 .iter()
                 .map(|pmm| {
-                    let (cfg, multi, mints, time) = (&self.cfg, &multi, &mints, &time);
+                    let (cfg, multi, mints, time) = (&self.cfg, &multi, &mints, &time_fmt);
                     let (src_name, dst_name) = (&src_name, &dst_name);
                     let pmm_accounts = accs_map.get(pmm).cloned().unwrap_or_default();
 
