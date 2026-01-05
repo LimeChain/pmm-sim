@@ -34,7 +34,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use spl_associated_token_account::get_associated_token_address;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
 /// Constants used throughout the simulation environment.
@@ -1394,29 +1394,24 @@ impl Run {
         env.load_programs(&flat_pmms)?;
         env.fetch_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?;
 
-        let norm_amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
-        let norm_amount_in_sum: u64 = norm_amount_in.iter().sum();
+        let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
+        let amount_in_sum: u64 = amount_in.iter().sum();
 
         // - mint only the source token's desired amount (i.e the amount we're going to swap)
         // - airdrop some SOL to cover fees
-        env.setup_wallet(&src_mint, norm_amount_in_sum, consts::AIRDROP_AMOUNT)?;
+        env.setup_wallet(&src_mint, amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
         let (src_ata, src_before) = (env.wallet_ata(&src_mint), env.token_balance_norm(&src_mint, src_dec));
         let (dst_ata, dst_before) = (env.wallet_ata(&dst_mint), env.token_balance_norm(&dst_mint, dst_dec));
+
+        debug!(?src_name, ?src_before, ?dst_name, ?dst_before);
 
         let routes: Vec<Vec<magnus_router_client::types::Route>> = pmms
             .iter()
             .zip(weights.iter())
             .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
             .collect();
-
-        info!(
-            %src_before,
-            %dst_before,
-            ?routes,
-            "swapping {norm_amount_in:?} {src_name} -> {dst_name}"
-        );
 
         let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
         let mut swap_builder = SwapBuilder::new();
@@ -1426,11 +1421,11 @@ impl Run {
             .destination_token_account(dst_ata)
             .source_mint(src_mint)
             .destination_mint(dst_mint)
-            .amount_in(norm_amount_in_sum)
+            .amount_in(amount_in_sum)
             .expect_amount_out(1)
             .min_return(1)
-            .amounts(norm_amount_in)
-            .routes(routes)
+            .amounts(amount_in)
+            .routes(routes.clone())
             .order_id(order_id);
 
         let mut construct = ConstructSwap {
@@ -1453,14 +1448,13 @@ impl Run {
         let res = env.send_transaction(tx).expect("failed to exec tx");
         let amount_out = env.get_event_amount_out(&res);
 
-        let (src_after, dst_after) = (env.token_balance_norm(&src_mint, src_dec), env.token_balance_norm(&dst_mint, dst_dec));
-
         info!(
-            compute_units = res.compute_units_consumed,
-            amount_out,
-            "{src_name} {src_before:.6} -> {src_after:.6} (spent {:.6}), {dst_name} {dst_before:.6} -> {dst_after:.6} (received {:.6})",
-            src_before - src_after,
-            dst_after - dst_before,
+            src_token = %src_name,
+            dst_token = %dst_name,
+            routes = ?routes,
+            amount_in = ?Misc::to_human(amount_in_sum, src_dec),
+            amount_out = ?Misc::to_human(amount_out, dst_dec),
+            cu = res.compute_units_consumed
         );
 
         Ok(())
