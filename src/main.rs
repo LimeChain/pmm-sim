@@ -3,7 +3,7 @@
 //! Simulate and/or Benchmark swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
-//#![deny(unused)]
+#![deny(unused)]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -530,7 +530,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             for (mint, _) in mints {
                 let ata = self.wallet_ata(mint);
                 let amount = if mint == src_mint { src_amount } else { 0 };
-                self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), amount))?;
+                self.svm.set_account(ata, Misc::mk_ata(mint, &self.wallet_pubkey(), amount))?;
             }
         }
 
@@ -556,7 +556,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             for (mint, _) in mints {
                 let ata = self.wallet_ata(mint);
                 let amount = if mint == src_mint { src_amount } else { 0 };
-                self.svm.set_account(ata, self.mk_ata(mint, &self.wallet_pubkey(), amount))?;
+                self.svm.set_account(ata, Misc::mk_ata(mint, &self.wallet_pubkey(), amount))?;
             }
         }
 
@@ -571,6 +571,10 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         get_associated_token_address(&self.wallet.pubkey(), mint)
     }
 
+    /// Loads the router program and all required PMM programs into the SVM.
+    ///
+    /// Programs are loaded from `.so` files in the configured `programs_path` directory.
+    /// The router program is always loaded, plus any unique PMM programs from the provided list.
     fn load_programs(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         // mandatory load
         self.svm
@@ -588,6 +592,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Sets multiple accounts in the SVM state.
     fn load_accounts(&mut self, accs: &Vec<(Pubkey, Account)>) -> eyre::Result<()> {
         for (pubkey, acc) in accs {
             self.svm.set_account(*pubkey, acc.clone())?;
@@ -596,6 +601,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Fetches and loads PMM accounts either from RPC (JIT) or from disk cache.
     fn fetch_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<()> {
         match jit {
             true => {
@@ -610,6 +616,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Loads PMM accounts from disk cache and warps to the cached slot.
     fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
 
@@ -617,6 +624,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             self.load_accounts(&accs)?;
         }
 
+        info!("loaded {pmms:?} accounts");
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
             self.slot = Some(s);
@@ -625,6 +633,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Fetches PMM accounts from RPC and warps to the fetched slot.
     fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
         let (slot, fetched) = Misc::fetch_pmm_accounts(pmms, client, &self.cfg)?;
 
@@ -639,6 +648,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Persists an account to disk in JSON format for later reuse.
     fn save_account_to_disk(&self, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
         let filename = format!("{}_{}.json", dex, pubkey);
         let accounts_path = format!("{}", self.accounts_path);
@@ -668,6 +678,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Returns the token balance for the wallet's ATA of the given mint.
     fn token_balance(&self, mint: &Pubkey) -> u64 {
         let ata = self.wallet_ata(mint);
         let account = self.svm.get_account(&ata).unwrap_or_default();
@@ -682,13 +693,17 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         self.svm.send_transaction(tx)
     }
 
+    /// Extracts the output amount from a swap transaction's logs.
+    ///
+    /// Parses the `SwapEvent` log emitted by the router program to find the
+    /// `amount_out` value. Panics if the event is not found in the logs.
     fn get_event_amount_out(&self, metadata: &TransactionMetadata) -> u64 {
         let amount_out: u64 = metadata
             .logs
             .iter()
             .find_map(|log| {
                 if log.contains("SwapEvent") {
-                    // Log format: "Program log: SwapEvent { dex: Humidifi, amount_in: 1000000000, amount_out: 121518066 }"
+                    // i.e.: "Program log: SwapEvent { dex: Humidifi, amount_in: 1000000000, amount_out: 121518066 }"
                     log.split("amount_out: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
                 } else {
                     None
@@ -697,27 +712,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             .expect("couldn't find amount_out in logs");
 
         amount_out
-    }
-
-    fn mk_ata(&self, mint: &Pubkey, user: &Pubkey, amount: u64) -> Account {
-        let ata = spl_token::state::Account {
-            mint: *mint,
-            owner: *user,
-            amount,
-            state: spl_token::state::AccountState::Initialized,
-            ..Default::default()
-        };
-
-        let mut data = vec![0u8; spl_token::state::Account::LEN];
-        ata.pack_into_slice(&mut data);
-
-        Account {
-            lamports: Rent::default().minimum_balance(data.len()),
-            data,
-            owner: spl_token::id(),
-            executable: false,
-            rent_epoch: u64::MAX,
-        }
     }
 }
 
@@ -729,7 +723,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 /// instruction is built using the `SwapBuilder` from the `magnus-router-client`
 /// crate, and then the required accounts for the specific Prop AMM are attached.
 ///
-/// The order of the remaining accounts matters.
+/// The order of the remaining_accounts matters.
 pub struct ConstructSwap<'a> {
     cfg: PMMCfg,
     builder: &'a mut SwapBuilder,
@@ -745,6 +739,11 @@ impl<'a> ConstructSwap<'a> {
         self.builder.instruction()
     }
 
+    /// Attaches the required remaining accounts for the specified PMM to the swap instruction.
+    ///
+    /// Each Prop AMM program expects a specific set of accounts in a precise order as
+    /// "remaining accounts" on the swap instruction. This method dispatches to the
+    /// appropriate PMM-specific attachment function based on the DEX type.
     fn attach_pmm_accs(&mut self, pmm: &Dex) {
         match pmm {
             Dex::Humidifi => self.attach_humidifi_accs(),
@@ -759,7 +758,7 @@ impl<'a> ConstructSwap<'a> {
         };
     }
 
-    pub fn attach_solfiv2_accs(&mut self) {
+    fn attach_solfiv2_accs(&mut self) {
         if let Some(cfg) = &self.cfg.solfi_v2 {
             self.builder.add_remaining_accounts(&vec![
                 AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
@@ -782,7 +781,7 @@ impl<'a> ConstructSwap<'a> {
         }
     }
 
-    pub fn attach_humidifi_accs(&mut self) {
+    fn attach_humidifi_accs(&mut self) {
         let Some(cfg) = &self.cfg.humidifi else {
             panic!("Humidifi config is missing, cannot attach accounts.");
         };
@@ -802,7 +801,7 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_zerofi_accs(&mut self) {
+    fn attach_zerofi_accs(&mut self) {
         let Some(cfg) = &self.cfg.zerofi else {
             panic!("Zerofi config is missing, cannot attach accounts.");
         };
@@ -822,7 +821,7 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_obric_v2_accs(&mut self) {
+    fn attach_obric_v2_accs(&mut self) {
         let Some(cfg) = &self.cfg.obric_v2 else {
             panic!("ObricV2 config is missing, cannot attach accounts.");
         };
@@ -844,7 +843,7 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_tessera_accs(&mut self) {
+    fn attach_tessera_accs(&mut self) {
         let Some(cfg) = &self.cfg.tessera else {
             panic!("Tessera config is missing, cannot attach accounts.");
         };
@@ -866,7 +865,7 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_goonfi_accs(&mut self) {
+    fn attach_goonfi_accs(&mut self) {
         let Some(cfg) = &self.cfg.goonfi else {
             panic!("Goonfi config is missing, cannot attach accounts.");
         };
@@ -897,6 +896,7 @@ impl Misc {
         Pubkey::new_from_array(bytes)
     }
 
+    /// Creates fully initialised mint account suitable for use in LiteSVM simulations.
     fn mk_mint_acc(decimals: u8) -> Account {
         let mint = spl_token::state::Mint {
             mint_authority: solana_sdk::program_option::COption::None,
@@ -918,8 +918,34 @@ impl Misc {
         }
     }
 
+    /// Creates a mock SPL Token Account (ATA) with the specified balance.
+    fn mk_ata(mint: &Pubkey, user: &Pubkey, amount: u64) -> Account {
+        let ata = spl_token::state::Account {
+            mint: *mint,
+            owner: *user,
+            amount,
+            state: spl_token::state::AccountState::Initialized,
+            ..Default::default()
+        };
+
+        let mut data = vec![0u8; spl_token::state::Account::LEN];
+        ata.pack_into_slice(&mut data);
+
+        Account {
+            lamports: Rent::default().minimum_balance(data.len()),
+            data,
+            owner: spl_token::id(),
+            executable: false,
+            rent_epoch: u64::MAX,
+        }
+    }
+
+    /// Reads previously saved PMM accounts from disk.
+    ///
+    /// Searches the `accounts_path` directory for JSON files matching each DEX's prefix
+    /// (e.g., `humidifi_*.json`) and deserialises them into account data.
     fn read_accounts_disk(pmms: &[Dex], accounts_path: &str) -> eyre::Result<(Option<u64>, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
-        let unique_pmms: HashSet<_> = pmms.iter().collect();
+        let pmms: HashSet<_> = pmms.iter().collect();
         let mut res = HashMap::new();
         let mut all_slots: Vec<u64> = vec![];
 
@@ -928,8 +954,8 @@ impl Misc {
             return Ok((None, res));
         }
 
-        for dex in unique_pmms {
-            let prefix = dex.to_string();
+        for pmm in pmms {
+            let prefix = pmm.to_string();
             let mut dex_accounts = vec![];
             let mut slots = vec![];
 
@@ -940,7 +966,7 @@ impl Misc {
                 if path.is_file()
                     && path.file_name().and_then(|n| n.to_str()).is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".json"))
                 {
-                    let (pubkey, account, slot) = Misc::parse_account_from_file(&path)?;
+                    let (slot, pubkey, account) = Misc::parse_account_from_file(&path)?;
                     dex_accounts.push((pubkey, account));
                     if let Some(s) = slot {
                         slots.push(s);
@@ -952,8 +978,8 @@ impl Misc {
                 all_slots.extend(&slots);
             }
 
-            res.insert(*dex, dex_accounts);
-            info!("loaded accounts for {dex} from disk");
+            res.insert(*pmm, dex_accounts);
+            info!("loaded accounts for {pmm} from disk");
         }
 
         let slot = if all_slots.is_empty() {
@@ -971,6 +997,11 @@ impl Misc {
         Ok((slot, res))
     }
 
+    /// Fetches PMM accounts from an RPC node in a single atomic request.
+    ///
+    /// Collects all account pubkeys from the provided DEX configurations and fetches
+    /// them in one `get_multiple_accounts_with_commitment` call to ensure all accounts
+    /// are read at the same slot.
     fn fetch_pmm_accounts(pmms: &[Dex], client: &RpcClient, cfg: &PMMCfg) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
         let pmms: HashSet<_> = pmms.iter().collect();
         let mut res = HashMap::new();
@@ -979,16 +1010,16 @@ impl Misc {
         let mut all_pubkeys: Vec<Pubkey> = vec![];
         let mut dex_ranges: Vec<(Dex, std::ops::Range<usize>)> = vec![];
 
-        for dex in &pmms {
-            let Some(accounts) = cfg.get_accounts(dex) else {
-                warn!("skipping unsupported prop amms: {dex}");
+        for pmm in &pmms {
+            let Some(accounts) = cfg.get_accounts(pmm) else {
+                warn!("skipping unsupported prop amms: {pmm}");
                 continue;
             };
 
             let start = all_pubkeys.len();
             all_pubkeys.extend(accounts.iter());
             let end = all_pubkeys.len();
-            dex_ranges.push((**dex, start..end));
+            dex_ranges.push((**pmm, start..end));
         }
 
         let response = client.get_multiple_accounts_with_commitment(&all_pubkeys, CommitmentConfig::confirmed())?;
@@ -1014,7 +1045,26 @@ impl Misc {
         Ok((slot, res))
     }
 
-    fn parse_account_from_file(path: &Path) -> eyre::Result<(Pubkey, Account, Option<u64>)> {
+    /// Parses a Solana account from a JSON file.
+    ///
+    /// Expected JSON format (matches Solana CLI `account` command output):
+    /// ```json
+    /// {
+    ///   "slot": 12345678,
+    ///   "pubkey": "Base58EncodedPubkey",
+    ///   "account": {
+    ///     "lamports": 1000000,
+    ///     "data": ["Base64EncodedData", "base64"],
+    ///     "owner": "Base58EncodedOwner",
+    ///     "executable": false,
+    ///     "rentEpoch": 0
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    /// A tuple of (slot, pubkey, account).
+    fn parse_account_from_file(path: &Path) -> eyre::Result<(Option<u64>, Pubkey, Account)> {
         let contents = fs::read_to_string(path)?;
         let value: serde_json::Value = serde_json::from_str(&contents)?;
 
@@ -1027,9 +1077,13 @@ impl Misc {
         let rent_epoch = value["account"]["rentEpoch"].as_u64().ok_or_else(|| eyre::eyre!("missing rentEpoch"))?;
         let slot = value["slot"].as_u64();
 
-        Ok((pubkey, Account { lamports, data, owner, executable, rent_epoch }, slot))
+        Ok((slot, pubkey, Account { lamports, data, owner, executable, rent_epoch }))
     }
 
+    /// Custom serde deserializer for `Pubkey` from a base58-encoded string.
+    ///
+    /// Used with `#[serde(deserialize_with = "Misc::deserialize_pubkey")]` attribute
+    /// on struct fields that should be deserialized as Solana pubkeys.
     fn deserialize_pubkey<'de, D>(deserializer: D) -> Result<Pubkey, D::Error>
     where
         D: serde::Deserializer<'de>,
