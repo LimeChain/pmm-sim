@@ -20,12 +20,6 @@ Possible modes of execution include:
 - **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
 - **benchmark** - Benchmark swaps for any of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and range size. Benchmark data can be visualised with [plot.py](./scripts/plot.py).
 
-Accounts are by default loaded (saved) from (at) [cfg/accounts](./cfg/accounts). Tweaking the source/destination is possible via `--accounts-path` or `ACCOUNTS_PATH` env variable.
-
-Programs are by default loaded (saved) from (at) [cfg/programs](./cfg/programs). Tweaking the source/destination is possible via `--programs-path` or `PROGRAMS_PATH` env variable.
-
-Datasets are by default loaded (saved) from (at) [datasets](./datasets). Tweaking the source/destination is possible via `--datasets-path` or `DATASETS_PATH` env variable.
-
 Exchange rate & CU plots for benchmarked swaps at slot `389129965`:
 
 ![exchange_rate](./assets/389129965_exchange_rate.png)
@@ -123,6 +117,14 @@ Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/pl
 ```
 ./target/release/pmm-sim fetch-accounts --pmms=humidifi,solfi-v2
 ```
+
+---
+
+Accounts are by default loaded (saved) from (at) [cfg/accounts](./cfg/accounts). Tweaking the source/destination is possible via `--accounts-path` or `ACCOUNTS_PATH` env variable.
+
+Programs are by default loaded (saved) from (at) [cfg/programs](./cfg/programs). Tweaking the source/destination is possible via `--programs-path` or `PROGRAMS_PATH` env variable.
+
+Datasets are by default loaded (saved) from (at) [datasets](./datasets). Tweaking the source/destination is possible via `--datasets-path` or `DATASETS_PATH` env variable.
 
 ---
 
