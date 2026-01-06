@@ -374,8 +374,7 @@ pub enum Command {
         about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).",
         after_help = "Examples:
   pmm-sim fetch-accounts --pmms=humidifi
-  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2
-  pmm-sim \
+  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2pmm-sim \
                       fetch-accounts --pmms=humidifi --http-url=https://my-rpc.com"
     )]
     FetchAccounts {
@@ -508,9 +507,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         let mut svm = LiteSVM::new().with_default_programs().with_sysvars().with_sigverify(true).with_compute_budget(budget);
 
         if let Some(mints) = mints {
-            for (mint, mint_decimals) in mints {
-                svm.set_account(*mint, Misc::mk_mint_acc(*mint_decimals))?;
-            }
+            mints.iter().try_for_each(|(mint, mint_decimals)| svm.set_account(*mint, Misc::mk_mint_acc(*mint_decimals)))?;
         }
 
         if let Some(slot) = slot {
@@ -555,11 +552,11 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// 2. Resets all other mint ATAs to zero balance
     fn reset_wallet(&mut self, src_mint: &Pubkey, src_amount: u64) -> eyre::Result<()> {
         if let Some(mints) = self.mints {
-            for (mint, _) in mints {
+            mints.iter().try_for_each(|(mint, _)| {
                 let ata = self.wallet_ata(mint);
                 let amount = if mint == src_mint { src_amount } else { 0 };
-                self.svm.set_account(ata, Misc::mk_ata(mint, &self.wallet_pubkey(), amount))?;
-            }
+                self.svm.set_account(ata, Misc::mk_ata(mint, &self.wallet_pubkey(), amount))
+            })?;
         }
 
         Ok(())
@@ -581,12 +578,12 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         // mandatory load
         self.load_program_router()?;
 
-        let unique_pmms: HashSet<_> = pmms.iter().collect();
-        for dex in unique_pmms {
-            let program_id = dex.program_id();
+        let pmms: HashSet<_> = pmms.iter().collect();
+        pmms.iter().try_for_each(|pmm| {
+            let program_id = pmm.program_id();
 
-            self.svm.add_program_from_file(Pubkey::new_from_array(program_id.to_bytes()), format!("{}/{}.so", self.programs_path, dex))?;
-        }
+            self.svm.add_program_from_file(Pubkey::new_from_array(program_id.to_bytes()), format!("{}/{}.so", self.programs_path, pmm))
+        })?;
 
         info!("loaded {pmms:?} program(s)");
 
@@ -603,15 +600,13 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
     /// Sets multiple accounts in the SVM state.
     fn load_accounts(&mut self, accs: &Vec<(Pubkey, Account)>) -> eyre::Result<()> {
-        for (pubkey, acc) in accs {
-            self.svm.set_account(*pubkey, acc.clone())?;
-        }
+        accs.iter().try_for_each(|(pubkey, acc)| self.svm.set_account(*pubkey, acc.clone()))?;
 
         Ok(())
     }
 
     /// Fetches and loads PMM accounts either from RPC (JIT) or from disk cache.
-    fn fetch_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<()> {
+    fn get_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<()> {
         match jit {
             true => {
                 let rpc_client = client.expect("RPC client is required for JIT account loading");
@@ -625,13 +620,23 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
+    /// Fetches PMM accounts from RPC and warps to the fetched slot.
+    fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
+        let (slot, fetched) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
+
+        fetched.iter().try_for_each(|(_, accs)| self.load_accounts(&accs))?;
+
+        self.svm.warp_to_slot(slot);
+        self.slot = Some(slot);
+
+        Ok(())
+    }
+
     /// Loads PMM accounts from disk cache and warps to the cached slot.
     fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
 
-        for (_, accs) in accs_map {
-            self.load_accounts(&accs)?;
-        }
+        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(&accs))?;
 
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
@@ -641,25 +646,11 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(())
     }
 
-    /// Fetches PMM accounts from RPC and warps to the fetched slot.
-    fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
-        let (slot, fetched) = Misc::fetch_pmm_accounts(pmms, client, &self.cfg)?;
-
-        for (_, accs) in fetched {
-            self.load_accounts(&accs)?;
-        }
-
-        self.svm.warp_to_slot(slot);
-        self.slot = Some(slot);
-
-        Ok(())
-    }
-
     /// Returns the token balance for the wallet's ATA of the given mint.
     fn token_balance(&self, mint: &Pubkey) -> u64 {
         let ata = self.wallet_ata(mint);
-        let account = self.svm.get_account(&ata).unwrap_or_default();
-        spl_token::state::Account::unpack(&account.data).map(|a| a.amount).unwrap_or(0)
+        let acc = self.svm.get_account(&ata).unwrap_or_default();
+        spl_token::state::Account::unpack(&acc.data).map(|a| a.amount).unwrap_or(0)
     }
 
     fn token_balance_norm(&self, mint: &Pubkey, decimals: u8) -> f64 {
@@ -742,31 +733,31 @@ impl<'a> ConstructSwap<'a> {
     }
 
     fn attach_solfiv2_accs(&mut self) {
-        if let Some(cfg) = &self.cfg.solfi_v2 {
-            self.builder.add_remaining_accounts(&[
-                AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
-                AccountMeta::new(self.payer, true),
-                AccountMeta::new(self.src_ta, false),
-                AccountMeta::new(self.dst_ta, false),
-                AccountMeta::new(cfg.market, false),
-                AccountMeta::new_readonly(cfg.oracle, false),
-                AccountMeta::new_readonly(cfg.cfg, false),
-                AccountMeta::new(cfg.base_ta, false),
-                AccountMeta::new(cfg.quote_ta, false),
-                AccountMeta::new_readonly(consts::WSOL, false),
-                AccountMeta::new_readonly(consts::USDC, false),
-                AccountMeta::new_readonly(spl_token::id(), false),
-                AccountMeta::new_readonly(spl_token::id(), false),
-                AccountMeta::new_readonly(sysvar::instructions::id(), false),
-            ]);
-        } else {
-            panic!("SolfiV2 config is missing, cannot attach accounts.");
-        }
+        let Some(cfg) = &self.cfg.solfi_v2 else {
+            panic!("SolFiV2 config is missing, cannot attach accounts.");
+        };
+
+        self.builder.add_remaining_accounts(&[
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new_readonly(cfg.oracle, false),
+            AccountMeta::new_readonly(cfg.cfg, false),
+            AccountMeta::new(cfg.base_ta, false),
+            AccountMeta::new(cfg.quote_ta, false),
+            AccountMeta::new_readonly(consts::WSOL, false),
+            AccountMeta::new_readonly(consts::USDC, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]);
     }
 
     fn attach_humidifi_accs(&mut self) {
         let Some(cfg) = &self.cfg.humidifi else {
-            panic!("Humidifi config is missing, cannot attach accounts.");
+            panic!("HumidiFi config is missing, cannot attach accounts.");
         };
 
         self.builder.add_remaining_accounts(&[
@@ -786,7 +777,7 @@ impl<'a> ConstructSwap<'a> {
 
     fn attach_zerofi_accs(&mut self) {
         let Some(cfg) = &self.cfg.zerofi else {
-            panic!("Zerofi config is missing, cannot attach accounts.");
+            panic!("ZeroFi config is missing, cannot attach accounts.");
         };
 
         self.builder.add_remaining_accounts(&[
@@ -850,7 +841,7 @@ impl<'a> ConstructSwap<'a> {
 
     fn attach_goonfi_accs(&mut self) {
         let Some(cfg) = &self.cfg.goonfi else {
-            panic!("Goonfi config is missing, cannot attach accounts.");
+            panic!("GoonFi config is missing, cannot attach accounts.");
         };
 
         let goonfi_param = Pubkey::new_from_array([0u8; 32]);
@@ -937,33 +928,36 @@ impl Misc {
             return Ok((None, res));
         }
 
-        for pmm in pmms {
+        pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
             let prefix = pmm.to_string();
-            let mut dex_accounts = vec![];
+            let mut dex_accs = vec![];
             let mut slots = vec![];
 
-            for entry in fs::read_dir(data_dir)? {
+            fs::read_dir(data_dir)?.into_iter().try_for_each(|entry| -> eyre::Result<()> {
                 let entry = entry?;
                 let path = entry.path();
 
                 if path.is_file()
                     && path.file_name().and_then(|n| n.to_str()).is_some_and(|name| name.starts_with(&prefix) && name.ends_with(".json"))
                 {
-                    let (slot, pubkey, account) = Misc::parse_account_from_file(&path)?;
-                    dex_accounts.push((pubkey, account));
+                    let (slot, pubkey, acc) = Misc::parse_account_from_file(&path)?;
+                    dex_accs.push((pubkey, acc));
                     if let Some(s) = slot {
                         slots.push(s);
                     }
                 }
-            }
+
+                Ok(())
+            })?;
 
             if !slots.is_empty() {
                 all_slots.extend(&slots);
             }
 
-            res.insert(*pmm, dex_accounts);
+            res.insert(**pmm, dex_accs);
             info!("loaded accounts for {pmm} from disk");
-        }
+            Ok(())
+        })?;
 
         let slot = if all_slots.is_empty() {
             None
@@ -1014,7 +1008,7 @@ impl Misc {
     /// Collects all account pubkeys from the provided DEX configurations and fetches
     /// them in one `get_multiple_accounts_with_commitment` call to ensure all accounts
     /// are read at the same slot.
-    fn fetch_pmm_accounts(pmms: &[Dex], client: &RpcClient, cfg: &PMMCfg) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
+    fn fetch_accounts(pmms: &[Dex], client: &RpcClient, cfg: &PMMCfg) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
         let pmms: HashSet<_> = pmms.iter().collect();
         let mut res = HashMap::new();
 
@@ -1022,37 +1016,39 @@ impl Misc {
         let mut all_pubkeys: Vec<Pubkey> = vec![];
         let mut dex_ranges: Vec<(Dex, std::ops::Range<usize>)> = vec![];
 
-        for pmm in &pmms {
-            let Some(accounts) = cfg.get_accounts(pmm) else {
+        pmms.iter().for_each(|pmm| {
+            let Some(accs) = cfg.get_accounts(pmm) else {
                 warn!("skipping unsupported prop amms: {pmm}");
-                continue;
+                return;
             };
 
             let start = all_pubkeys.len();
-            all_pubkeys.extend(accounts.iter());
+            all_pubkeys.extend(accs.iter());
             let end = all_pubkeys.len();
             dex_ranges.push((**pmm, start..end));
-        }
+        });
 
         let response = client.get_multiple_accounts_with_commitment(&all_pubkeys, CommitmentConfig::confirmed())?;
         let slot = response.context.slot;
-        let all_accounts = response.value;
+        let all_accs = response.value;
 
         info!("fetched {} accounts for {pmms:?} at slot {slot}", all_pubkeys.len());
 
         // reconstruct per-dex account maps
-        for (dex, range) in dex_ranges {
-            let mut dex_accounts = vec![];
-            for (i, pubkey) in all_pubkeys[range.clone()].iter().enumerate() {
+        dex_ranges.iter().for_each(|(dex, range)| {
+            let mut dex_accs = vec![];
+
+            all_pubkeys[range.clone()].iter().enumerate().for_each(|(i, pubkey)| {
                 let idx = range.start + i;
-                if let Some(acc) = &all_accounts[idx] {
-                    dex_accounts.push((*pubkey, acc.clone()));
+                if let Some(acc) = &all_accs[idx] {
+                    dex_accs.push((*pubkey, acc.clone()));
                 } else {
                     warn!("account {pubkey} not found for {dex}");
                 }
-            }
-            res.insert(dex, dex_accounts);
-        }
+            });
+
+            res.insert(*dex, dex_accs);
+        });
 
         Ok((slot, res))
     }
@@ -1113,6 +1109,10 @@ impl Misc {
     fn to_raw(amount: f64, dec: u8) -> u64 {
         (amount * 10f64.powi(dec as i32)) as u64
     }
+
+    fn gen_order_id() -> u64 {
+        SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    }
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -1146,9 +1146,7 @@ impl<'a> Benchmark<'a> {
     }
 
     pub fn save(&mut self) -> eyre::Result<()> {
-        for record in &self.records {
-            self.writer.serialize(record)?;
-        }
+        self.records.iter().try_for_each(|record| self.writer.serialize(record))?;
 
         self.writer.flush()?;
 
@@ -1217,13 +1215,17 @@ impl Run {
         let Command::FetchAccounts { http_url, accounts_path, pmms, .. } = &self.args.command else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
-        let (slot, fetched) = Misc::fetch_pmm_accounts(pmms, &rpc_client, &self.cfg)?;
-        for (dex, accounts) in fetched {
-            for (pubkey, account) in accounts {
-                Misc::save_account_to_disk(accounts_path, &dex, &pubkey, &account, slot)?;
+        let (slot, fetched) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
+
+        fetched.iter().try_for_each(|(dex, accs)| -> eyre::Result<()> {
+            accs.iter().try_for_each(|(pubkey, acc)| -> eyre::Result<()> {
+                Misc::save_account_to_disk(accounts_path, &dex, &pubkey, &acc, slot)?;
                 info!("saved account {pubkey} for {dex}");
-            }
-        }
+                Ok(())
+            })?;
+
+            Ok(())
+        })?;
 
         info!("done fetching accounts at slot {slot}");
         Ok(())
@@ -1242,7 +1244,7 @@ impl Run {
         let multi = MultiProgress::new();
 
         let (slot, accs_map) = if common.jit_accounts {
-            let (s, m) = Misc::fetch_pmm_accounts(pmms, &rpc_client, &self.cfg)?;
+            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
             (Some(s), m)
         } else {
             Misc::read_accounts_disk(pmms, &common.accounts_path)?
@@ -1254,7 +1256,7 @@ impl Run {
                 .map(|pmm| {
                     let (cfg, multi, mints, time) = (&self.cfg, &multi, &mints, &time_fmt);
                     let (src_name, dst_name) = (&src_name, &dst_name);
-                    let pmm_accounts = accs_map.get(pmm).cloned().unwrap_or_default();
+                    let pmm_accs = accs_map.get(pmm).cloned().unwrap_or_default();
 
                     s.spawn(move || -> eyre::Result<()> {
                         // start up the progress bar only when all the spawned threads
@@ -1281,11 +1283,11 @@ impl Run {
                         let routes: Vec<Vec<magnus_router_client::types::Route>> =
                             vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
 
-                        for amount_in in range.iter() {
+                        range.iter().try_for_each(|amount_in| -> eyre::Result<()> {
                             env.reset_wallet(&src_mint, amount_in)?;
-                            env.load_accounts(&pmm_accounts)?;
+                            env.load_accounts(&pmm_accs)?;
 
-                            let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+                            let order_id = Misc::gen_order_id();
                             let mut swap_builder = SwapBuilder::new();
                             let swap = swap_builder
                                 .payer(env.wallet_pubkey())
@@ -1326,7 +1328,7 @@ impl Run {
                                     (warn_cnt == 0).then(|| pb.println(format!("[WARN] {}: {:?}", pmm, e)));
                                     warn_cnt += 1;
                                     pb.inc(1);
-                                    continue;
+                                    return Ok(());
                                 }
                             };
 
@@ -1345,7 +1347,9 @@ impl Run {
 
                             pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_dec)));
                             pb.inc(1);
-                        }
+
+                            return Ok(());
+                        })?;
 
                         (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
 
@@ -1359,11 +1363,11 @@ impl Run {
                 })
                 .collect();
 
-            for handle in handles {
+            handles.into_iter().for_each(move |handle| {
                 if let Err(e) = handle.join().expect("thread panicked") {
                     warn!(?e, "benchmark thread failed");
                 }
-            }
+            });
         });
 
         Ok(())
@@ -1383,9 +1387,9 @@ impl Run {
 
         // ensure that each dex has a corresponding weight
         assert_eq!(pmms.len(), weights.len(), "dexes and weights outer length mismatch");
-        for (d, w) in pmms.iter().zip(weights.iter()) {
+        pmms.iter().zip(weights.iter()).for_each(|(d, w)| {
             assert_eq!(d.len(), w.len(), "dexes and weights length mismatch");
-        }
+        });
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
         let flat_pmms: Vec<Dex> = pmms.iter().flatten().copied().collect();
@@ -1396,7 +1400,7 @@ impl Run {
 
         let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
         env.load_programs(&flat_pmms)?;
-        env.fetch_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?;
+        env.get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?;
 
         let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
         let amount_in_sum: u64 = amount_in.iter().sum();
@@ -1417,7 +1421,7 @@ impl Run {
             .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
             .collect();
 
-        let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let order_id = Misc::gen_order_id();
         let mut swap_builder = SwapBuilder::new();
         let swap = swap_builder
             .payer(env.wallet_pubkey())
@@ -1591,9 +1595,9 @@ mod tests {
             let weights = CliArgs::parse_nested_weights(weights_input).unwrap();
 
             assert_eq!(pmms.len(), weights.len());
-            for (d, w) in pmms.iter().zip(weights.iter()) {
+            pmms.iter().zip(weights.iter()).for_each(|(d, w)| {
                 assert_eq!(d.len(), w.len());
-            }
+            });
         }
 
         #[test]
@@ -1858,11 +1862,11 @@ mod tests {
 
         #[test]
         fn test_mk_mint_acc_different_decimals() {
-            for decimals in [0, 6, 9, 18] {
-                let account = Misc::mk_mint_acc(decimals);
+            [0, 6, 9, 18].iter().for_each(|decimals| {
+                let account = Misc::mk_mint_acc(*decimals);
                 let mint = spl_token::state::Mint::unpack(&account.data).unwrap();
-                assert_eq!(mint.decimals, decimals);
-            }
+                assert_eq!(mint.decimals, *decimals);
+            });
         }
 
         #[test]
