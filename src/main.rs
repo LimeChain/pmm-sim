@@ -1281,7 +1281,6 @@ impl Run {
                             env.load_accounts(&pmm_accounts)?;
 
                             let order_id = SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-
                             let mut swap_builder = SwapBuilder::new();
                             let swap = swap_builder
                                 .payer(env.wallet_pubkey())
@@ -1473,9 +1472,10 @@ fn main() -> eyre::Result<()> {
         .init();
 
     let args = CliArgs::parse();
-    info!(?args, command = args.command.name());
-
     let cfg = PMMCfg::load(args.command.setup_path())?;
+
+    info!(command = args.command.name(), ?args);
+    debug!(?cfg);
 
     Run::new(args, cfg).run()
 }

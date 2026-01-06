@@ -4,12 +4,12 @@ Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup reli
 
 Supported Prop AMMs:
 
-- [x] Humidifi
-- [x] SolfiV2
+- [x] HumidiFi
+- [x] SolFiV2
 - [x] ObricV2
-- [x] Zerofi
+- [x] ZeroFi
 - [x] TesseraV
-- [x] Goonfi
+- [x] GoonFi
 
 The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts) or with the current live accounts (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts. The markets are specified in [setup.toml](./setup.toml).
 
@@ -104,7 +104,7 @@ RUST_LOG=debug ./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[goon
 
 Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/plot.py), like so:
 
-##### Plots all the local datasets for slot `389141713`.
+##### Plot the datasets for slot `389141713`.
 
 ```
 ./scripts/plot.py ./datasets/389141713*
