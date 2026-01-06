@@ -374,7 +374,8 @@ pub enum Command {
         about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).",
         after_help = "Examples:
   pmm-sim fetch-accounts --pmms=humidifi
-  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2pmm-sim \
+  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2
+  pmm-sim \
                       fetch-accounts --pmms=humidifi --http-url=https://my-rpc.com"
     )]
     FetchAccounts {
