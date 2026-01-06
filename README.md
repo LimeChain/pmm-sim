@@ -2,7 +2,9 @@
 
 Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup relies on [Litesvm](https://crates.io/crates/litesvm) for local, consistent and expedited execution. Additionally, since some proprietary AMMs block swaps originating from direct offchain calls, we rely on a custom router program - [Magnus](https://github.com/limechain/magnus) - to facilitate the swap execution.
 
-![Walkthrough](./assets/walkthrough.gif)
+<p align="center">
+  <img src="./assets/demo.gif" alt="Demo" width="900">
+</p>
 
 Supported Prop AMMs:
 
