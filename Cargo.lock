@@ -2504,7 +2504,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "magnus-router-client"
 version = "0.0.1-rc"
-source = "git+ssh://git@github.com/limechain/magnus.git?tag=0.0.1-rc#da0dce51256636b36e453a391652c9d2b39c623f"
+source = "git+https://git@github.com/limechain/magnus.git?tag=0.0.1-rc#da0dce51256636b36e453a391652c9d2b39c623f"
 dependencies = [
  "borsh 1.6.0",
  "num-derive",
@@ -2521,7 +2521,7 @@ dependencies = [
 [[package]]
 name = "magnus-shared"
 version = "0.0.1-rc"
-source = "git+ssh://git@github.com/limechain/magnus.git?tag=0.0.1-rc#da0dce51256636b36e453a391652c9d2b39c623f"
+source = "git+https://git@github.com/limechain/magnus.git?tag=0.0.1-rc#da0dce51256636b36e453a391652c9d2b39c623f"
 dependencies = [
  "anchor-lang",
  "magnus-router-client",

@@ -72,7 +72,7 @@ cargo build --release
 ./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[tessera]]" --weights="[[92, 8],[100]]" --amount-in=100,3
 ```
 
-##### Execute two routes, the first swapping 150,000 USDC for WSOL using Humidifi and SolfiV2 (split 25%/75%), the second swapping 1000 USDC for WSOL using Goonfi. Uses the static accounts (i.e the accounts found at [./cfg/accounts](./cfg/accounts)).
+##### Execute two routes, the first swapping 150,000 USDC for WSOL using Humidifi and SolfiV2 (split 25%/75%), the second swapping 1000 USDC for WSOL using Goonfi.
 
 ```
 RUST_LOG=debug ./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[goonfi]]" --weights="[[25,75],[100]]" --amount-in=150000,1000 --src-token=USDC --dst-token=WSOL --jit-accounts=true
