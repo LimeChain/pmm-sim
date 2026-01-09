@@ -600,7 +600,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// Sets multiple accounts in the SVM state.
-    fn load_accounts(&mut self, accs: &Vec<(Pubkey, Account)>) -> eyre::Result<()> {
+    fn load_accounts(&mut self, accs: &[(Pubkey, Account)]) -> eyre::Result<()> {
         accs.iter().try_for_each(|(pubkey, acc)| self.svm.set_account(*pubkey, acc.clone()))?;
 
         Ok(())
@@ -625,7 +625,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
         let (slot, fetched) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
 
-        fetched.iter().try_for_each(|(_, accs)| self.load_accounts(&accs))?;
+        fetched.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
 
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);
@@ -637,7 +637,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
         let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(&accs))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
 
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
@@ -1220,7 +1220,7 @@ impl Run {
 
         fetched.iter().try_for_each(|(dex, accs)| -> eyre::Result<()> {
             accs.iter().try_for_each(|(pubkey, acc)| -> eyre::Result<()> {
-                Misc::save_account_to_disk(accounts_path, &dex, &pubkey, &acc, slot)?;
+                Misc::save_account_to_disk(accounts_path, dex, pubkey, acc, slot)?;
                 info!("saved account {pubkey} for {dex}");
                 Ok(())
             })?;
@@ -1349,7 +1349,7 @@ impl Run {
                             pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_dec)));
                             pb.inc(1);
 
-                            return Ok(());
+                            Ok(())
                         })?;
 
                         (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
