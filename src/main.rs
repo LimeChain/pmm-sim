@@ -149,7 +149,7 @@ macro_rules! define_dex_configs {
 // All DEX Cfgs
 // Reference the cfg file — `setup.toml`
 define_dex_configs! {
-    Humidifi => HumidifiCfg : humidifi ("humidifi") {
+    HumidiFi => HumidifiCfg : humidifi ("humidifi") {
         market,
         base_ta,
         quote_ta,
@@ -160,7 +160,7 @@ define_dex_configs! {
         quote_ta,
         global_state,
     },
-    Goonfi => GoonfiCfg : goonfi ("goonfi") {
+    GoonFi => GoonfiCfg : goonfi ("goonfi") {
         market,
         base_ta,
         quote_ta,
@@ -173,7 +173,7 @@ define_dex_configs! {
         cfg,
         oracle,
     },
-    Zerofi => ZerofiCfg : zerofi ("zerofi") {
+    ZeroFi => ZerofiCfg : zerofi ("zerofi") {
         market,
         vault_info_base,
         vault_base,
@@ -189,6 +189,11 @@ define_dex_configs! {
         ref_oracle,
         x_price_feed,
         y_price_feed,
+    },
+    BisonFi => BisonfiCfg : bisonfi ("bisonfi") {
+        market,
+        market_base_ta,
+        market_quote_ta,
     },
 }
 
@@ -721,12 +726,13 @@ impl<'a> ConstructSwap<'a> {
     /// appropriate PMM-specific attachment function based on the DEX type.
     fn attach_pmm_accs(&mut self, pmm: &Dex) {
         match pmm {
-            Dex::Humidifi => self.attach_humidifi_accs(),
+            Dex::HumidiFi => self.attach_humidifi_accs(),
             Dex::SolfiV2 => self.attach_solfiv2_accs(),
-            Dex::Zerofi => self.attach_zerofi_accs(),
+            Dex::ZeroFi => self.attach_zerofi_accs(),
             Dex::ObricV2 => self.attach_obric_v2_accs(),
             Dex::Tessera => self.attach_tessera_accs(),
-            Dex::Goonfi => self.attach_goonfi_accs(),
+            Dex::GoonFi => self.attach_goonfi_accs(),
+            Dex::BisonFi => self.attach_bisonfi_accs(),
             _ => {
                 unimplemented!()
             }
@@ -859,6 +865,25 @@ impl<'a> ConstructSwap<'a> {
             AccountMeta::new_readonly(cfg.blacklist, false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
+        ]);
+    }
+
+    fn attach_bisonfi_accs(&mut self) {
+        let Some(cfg) = &self.cfg.bisonfi else {
+            panic!("BisonFi config is missing, cannot attach accounts.");
+        };
+
+        self.builder.add_remaining_accounts(&[
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_bisonfi::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.market_base_ta, false),
+            AccountMeta::new(cfg.market_quote_ta, false),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]);
     }
 }
