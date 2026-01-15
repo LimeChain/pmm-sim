@@ -628,9 +628,9 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
     /// Fetches PMM accounts from RPC and warps to the fetched slot.
     fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
-        let (slot, fetched) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
+        let (slot, accs_map) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
 
-        fetched.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
 
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);

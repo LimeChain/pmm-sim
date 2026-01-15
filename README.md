@@ -1,8 +1,6 @@
 # pmm-sim
 
-Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup relies on [Litesvm](https://crates.io/crates/litesvm) for local, consistent and expedited execution. Additionally, since some proprietary AMMs block swaps originating from direct offchain calls, we rely on a custom router program - [Magnus](https://github.com/limechain/magnus) - to facilitate the swap execution.
-
-![Demo](./assets/demo.gif)
+Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup relies on [Litesvm](https://crates.io/crates/litesvm) for local, consistent and expedited execution. Additionally, since some proprietary AMMs block swaps originating from direct offchain calls, we rely on a custom router program - [magnus-router](https://github.com/LimeChain/magnus/tree/master/crates/router) - to facilitate the swap execution.
 
 Supported Prop AMMs:
 
@@ -12,6 +10,7 @@ Supported Prop AMMs:
 - [x] ZeroFi
 - [x] TesseraV
 - [x] GoonFi
+- [x] BisonFi
 
 The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts) or with the current live accounts (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts. The markets are specified in [setup.toml](./setup.toml).
 
