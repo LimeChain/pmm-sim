@@ -1214,7 +1214,7 @@ impl Benchmark {
         self.range[1]
     }
 
-    /// Returns the time string.
+    /// Returns the time string we append to the filename.
     pub fn time(&self) -> &str {
         &self.time
     }
