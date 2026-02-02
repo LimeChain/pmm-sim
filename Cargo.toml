@@ -6,6 +6,7 @@ edition = "2024"
 [lib]
 name = "pmm_sim"
 path = "src/lib.rs"
+doctest = false
 
 [[bin]]
 name = "pmm-sim"
