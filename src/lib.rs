@@ -19,13 +19,13 @@ use std::{
 use base64::{Engine, engine::general_purpose};
 use chrono::Local;
 use clap::{Args, Parser, Subcommand};
-use csv::Writer;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use magnus_router_client::instructions::SwapBuilder;
 use magnus_shared::{Dex, Route};
+use polars::prelude::*;
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget::compute_budget::ComputeBudget;
@@ -364,7 +364,7 @@ pub enum Command {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(long, env = "DATASETS_PATH", default_value = consts::DATASETS_PATH, help = "Directory to dump the benchmark CSVs into")]
+        #[arg(long, env = "DATASETS_PATH", default_value = consts::DATASETS_PATH, help = "Directory to dump the benchmark parquet files into")]
         datasets_path: String,
 
         #[arg(long, env = "PROP_AMMS", value_delimiter = ',', default_value = "humidifi", help = "The Prop AMMs to benchmark")]
@@ -1140,40 +1140,49 @@ impl Misc {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
-pub struct BenchmarkRecord<'a> {
+#[derive(Debug, Clone)]
+pub struct BenchmarkRecord {
     slot: u64,
-    pmm: Dex,
-    market: &'a str,
-    src_token: &'a str,
-    dst_token: &'a str,
+    pmm: String,
+    market: String,
+    src_token: String,
+    dst_token: String,
     amount_in: f64,
     amount_out: f64,
     compute_units: u64,
 }
 
 #[derive(Debug)]
-pub struct Benchmark<'a> {
-    records: Vec<BenchmarkRecord<'a>>,
-    writer: csv::Writer<File>,
+pub struct Benchmark {
+    records: Vec<BenchmarkRecord>,
+    save_path: String,
 }
 
-impl<'a> Benchmark<'a> {
-    pub fn new(records: Vec<BenchmarkRecord<'a>>, save_path: &str) -> eyre::Result<Self> {
-        let save_path = if save_path.ends_with(".csv") {
+impl Benchmark {
+    pub fn new(records: Vec<BenchmarkRecord>, save_path: &str) -> eyre::Result<Self> {
+        let save_path = if save_path.ends_with(".parquet") {
             save_path.to_string()
         } else {
-            format!("{}.csv", save_path)
+            format!("{}.parquet", save_path)
         };
 
-        let writer = Writer::from_path(&save_path)?;
-        Ok(Benchmark { records, writer })
+        Ok(Benchmark { records, save_path })
     }
 
-    pub fn save(&mut self) -> eyre::Result<()> {
-        self.records.iter().try_for_each(|record| self.writer.serialize(record))?;
+    pub fn save(&self) -> eyre::Result<()> {
+        let df = DataFrame::new(vec![
+            Column::new("slot".into(), self.records.iter().map(|r| r.slot).collect::<Vec<_>>()),
+            Column::new("pmm".into(), self.records.iter().map(|r| r.pmm.as_str()).collect::<Vec<_>>()),
+            Column::new("market".into(), self.records.iter().map(|r| r.market.as_str()).collect::<Vec<_>>()),
+            Column::new("src_token".into(), self.records.iter().map(|r| r.src_token.as_str()).collect::<Vec<_>>()),
+            Column::new("dst_token".into(), self.records.iter().map(|r| r.dst_token.as_str()).collect::<Vec<_>>()),
+            Column::new("amount_in".into(), self.records.iter().map(|r| r.amount_in).collect::<Vec<_>>()),
+            Column::new("amount_out".into(), self.records.iter().map(|r| r.amount_out).collect::<Vec<_>>()),
+            Column::new("compute_units".into(), self.records.iter().map(|r| r.compute_units).collect::<Vec<_>>()),
+        ])?;
 
-        self.writer.flush()?;
+        let mut file = File::create(&self.save_path)?;
+        ParquetWriter::new(&mut file).finish(&mut df.clone())?;
 
         Ok(())
     }
@@ -1361,10 +1370,10 @@ impl Run {
 
                             records.push(BenchmarkRecord {
                                 slot: env.slot.unwrap_or_default(),
-                                pmm: *pmm,
-                                market: &market,
-                                src_token: src_name,
-                                dst_token: dst_name,
+                                pmm: pmm.to_string(),
+                                market: market.clone(),
+                                src_token: src_name.clone(),
+                                dst_token: dst_name.clone(),
                                 amount_in: Misc::to_human(amount_in, src_dec),
                                 amount_out: Misc::to_human(amount_out, dst_dec),
                                 compute_units: res.compute_units_consumed,
@@ -1378,7 +1387,7 @@ impl Run {
 
                         (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
 
-                        let filename = format!("{}/{}_{}_{}_{}.csv", datasets_path, env.slot.unwrap_or_default(), pmm, market, time);
+                        let filename = format!("{}/{}_{}_{}_{}.parquet", datasets_path, env.slot.unwrap_or_default(), pmm, market, time);
                         Benchmark::new(records.clone(), &filename)?.save().is_ok().then(|| {
                             pb.println(format!("[{}] saved {} records to {}", pmm, records.len(), filename));
                         });
