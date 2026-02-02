@@ -29,6 +29,12 @@ _Figure 1: Exchange rate for benchmarked swaps_
 ![cu_usage](./assets/389129965_compute_units.png)
 _Figure 2: Compute unit usage_
 
+All datasets are saved as `parquet` and available at [datasets](./datasets). To peek at the data through cli:
+
+```sh
+duckdb -csv -c "SELECT * FROM 'datasets/389129965_goonfi_4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K_20251225-212154.parquet'" | column -t -s ,
+```
+
 ## Examples
 
 Build the project:
@@ -48,7 +54,7 @@ cargo build --release
 ##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM.
 
 ```
-./target/release/pmm-sim single --pmms=tessera,solfi-v2 --weights=50,50 --amount-in=375 --src-token=WSOL --dst-token=USDC
+./target/release/pmm-sim single --amount-in=375 --pmms=tessera,solfi-v2 --weights=50,50 --src-token=WSOL --dst-token=USDC
 ```
 
 ##### Swap 100 WSOL for USDC using SolFiV2, HumidiFi, and Tessera, in one route, split 33,33,34 WSOL per Prop AMM.
@@ -68,13 +74,13 @@ cargo build --release
 ##### Swap 103 WSOL for USDC in a multi-route swap, 100 WSOL via HumidiFi and SolFiV2 (split 92%/8%) in one route, and 3 WSOL via Tessera in another route.
 
 ```
-./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[tessera]]" --weights="[[92, 8],[100]]" --amount-in=100,3
+./target/release/pmm-sim multi --amount-in=100,3 --pmms="[[humidifi,solfi-v2],[tessera]]" --weights="[[92,8],[100]]"
 ```
 
 ##### Execute two routes, the first swapping 150,000 USDC for WSOL using HumidiFi and SolFiV2 (split 25%/75%), the second swapping 1000 USDC for WSOL using GoonFi.
 
 ```
-RUST_LOG=debug ./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[goonfi]]" --weights="[[25,75],[100]]" --amount-in=150000,1000 --src-token=USDC --dst-token=WSOL --jit-accounts=true
+RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 --pmms="[[humidifi,solfi-v2],[goonfi]]" --weights="[[25,75],[100]]" --src-token=USDC --dst-token=WSOL --jit-accounts=true
 ```
 
 ### Benchmark swaps
@@ -82,19 +88,19 @@ RUST_LOG=debug ./target/release/pmm-sim multi --pmms="[[humidifi,solfi-v2],[goon
 ##### Benchmark swaps on HumidiFi,Tessera,SolFiV2 and GoonFi, from 1 to 4000 WSOL to USDC, in increments of 1 WSOL. The results are saved at [./datasets](./datasets).
 
 ```
-./target/release/pmm-sim benchmark --range=1.0,4000.0,1.0 --pmms=humidifi,tessera,solfi-v2,goonfi --src-token=wsol --dst-token=usdc
+./target/release/pmm-sim benchmark --pmms=humidifi,tessera,solfi-v2,goonfi --range=1.0,4000.0,1.0 --src-token=wsol --dst-token=usdc
 ```
 
 ##### Benchmark swaps on Tessera and SolFiV2, from 1 to 250 WSOL, in increments of 0.01 WSOL. The results are saved at [./datasets](./datasets).
 
 ```
-./target/release/pmm-sim benchmark --range=1.0,250.0,0.01 --pmms=tessera,solfi-v2 --src-token=wsol --dst-token=usdc
+./target/release/pmm-sim benchmark --pmms=tessera,solfi-v2 --range=1.0,250.0,0.01 --src-token=wsol --dst-token=usdc
 ```
 
 ##### Benchmark swaps (USDC->WSOL) on HumidiFi and SolFiV2, from 10K to 100K USDC, in increments of 100 USDC. The results are saved at [./datasets](./datasets).
 
 ```
-./target/release/pmm-sim benchmark --range=10000,100000,100 --pmms=humidifi,solfi-v2 --src-token=usdc --dst-token=wsol
+./target/release/pmm-sim benchmark --pmms=humidifi,solfi-v2 --range=10000,100000,100 --src-token=usdc --dst-token=wsol
 ```
 
 Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/plot.py), like so:
