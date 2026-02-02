@@ -536,11 +536,11 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// 1. Creates ATAs with zero balance for all mints in `self.mints`
     /// 2. Sets the source mint's ATA balance to `src_amount`
     /// 3. Airdrops SOL to the wallet for fees
-    pub fn setup_wallet(&mut self, src_mint: &Pubkey, src_amount: u64, airdrop_amount: u64) -> eyre::Result<()> {
+    pub fn setup_wallet(&mut self, src_mint: &Pubkey, src_amount: u64, airdrop_amount: u64) -> eyre::Result<&mut Self> {
         self.reset_wallet(src_mint, src_amount)?;
         self.svm.airdrop(&self.wallet_pubkey(), airdrop_amount).expect("airdrop failed");
 
-        Ok(())
+        Ok(self)
     }
 
     /// Resets the wallet's token balances between simulation iterations.
@@ -555,7 +555,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// # Behavior
     /// 1. Sets the source mint's ATA balance to `src_amount`
     /// 2. Resets all other mint ATAs to zero balance
-    pub fn reset_wallet(&mut self, src_mint: &Pubkey, src_amount: u64) -> eyre::Result<()> {
+    pub fn reset_wallet(&mut self, src_mint: &Pubkey, src_amount: u64) -> eyre::Result<&mut Self> {
         if let Some(mints) = self.mints {
             mints.iter().try_for_each(|(mint, _)| {
                 let ata = self.wallet_ata(mint);
@@ -564,7 +564,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             })?;
         }
 
-        Ok(())
+        Ok(self)
     }
 
     pub fn wallet_pubkey(&self) -> Pubkey {
@@ -579,7 +579,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     ///
     /// Programs are loaded from `.so` files in the configured `programs_path` directory.
     /// The router program is always loaded, plus any unique PMM programs from the provided list.
-    pub fn load_programs(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
+    pub fn load_programs(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
         // mandatory load
         self.load_program_router()?;
 
@@ -592,26 +592,26 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
         info!("loaded {pmms:?} program(s)");
 
-        Ok(())
+        Ok(self)
     }
 
     /// Loads the router program into the SVM.
-    pub fn load_program_router(&mut self) -> eyre::Result<()> {
+    pub fn load_program_router(&mut self) -> eyre::Result<&mut Self> {
         self.svm
             .add_program_from_file(magnus_router_client::programs::ROUTER_ID, format!("{}/{}.so", self.programs_path, consts::ROUTER))?;
 
-        Ok(())
+        Ok(self)
     }
 
     /// Sets multiple accounts in the SVM state.
-    pub fn load_accounts(&mut self, accs: &[(Pubkey, Account)]) -> eyre::Result<()> {
+    pub fn load_accounts(&mut self, accs: &[(Pubkey, Account)]) -> eyre::Result<&mut Self> {
         accs.iter().try_for_each(|(pubkey, acc)| self.svm.set_account(*pubkey, acc.clone()))?;
 
-        Ok(())
+        Ok(self)
     }
 
     /// Fetches and loads PMM accounts either from RPC (JIT) or from disk cache.
-    pub fn get_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<()> {
+    pub fn get_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<&mut Self> {
         match jit {
             true => {
                 let rpc_client = client.expect("RPC client is required for JIT account loading");
@@ -622,33 +622,33 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             }
         }
 
-        Ok(())
+        Ok(self)
     }
 
     /// Fetches PMM accounts from RPC and warps to the fetched slot.
-    pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<()> {
+    pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
         let (slot, accs_map) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs).map(|_| ()))?;
 
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);
 
-        Ok(())
+        Ok(self)
     }
 
     /// Loads PMM accounts from disk cache and warps to the cached slot.
-    pub fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<()> {
+    pub fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
         let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs).map(|_| ()))?;
 
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
             self.slot = Some(s);
         }
 
-        Ok(())
+        Ok(self)
     }
 
     /// Returns the token balance for the wallet's ATA of the given mint.
@@ -723,7 +723,7 @@ impl<'a> ConstructSwap<'a> {
     /// Each Prop AMM program expects a specific set of accounts in a precise order as
     /// "remaining accounts" on the swap instruction. This method dispatches to the
     /// appropriate PMM-specific attachment function based on the DEX type.
-    pub fn attach_pmm_accs(&mut self, pmm: &Dex) {
+    pub fn attach_pmm_accs(&mut self, pmm: &Dex) -> &mut Self {
         match pmm {
             Dex::HumidiFi => self.attach_humidifi_accs(),
             Dex::SolfiV2 => self.attach_solfiv2_accs(),
@@ -736,6 +736,17 @@ impl<'a> ConstructSwap<'a> {
                 unimplemented!()
             }
         };
+
+        self
+    }
+
+    /// Attaches the required remaining accounts for multiple PMMs to the swap instruction.
+    pub fn attach_pmms_accs(&mut self, pmms: &[Dex]) -> &mut Self {
+        pmms.iter().for_each(|pmm| {
+            self.attach_pmm_accs(pmm);
+        });
+
+        self
     }
 
     pub fn attach_solfiv2_accs(&mut self) {
@@ -1152,21 +1163,60 @@ pub struct BenchmarkRecord {
     compute_units: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone)]
 pub struct Benchmark {
     records: Vec<BenchmarkRecord>,
     save_path: String,
+    range: [u64; 3],
+    time: String,
 }
 
 impl Benchmark {
-    pub fn new(records: Vec<BenchmarkRecord>, save_path: &str) -> eyre::Result<Self> {
-        let save_path = if save_path.ends_with(".parquet") {
-            save_path.to_string()
-        } else {
-            format!("{}.parquet", save_path)
-        };
+    pub fn new() -> Self {
+        Self { time: Local::now().format("%Y%m%d-%H%M%S").to_string(), ..Default::default() }
+    }
 
-        Ok(Benchmark { records, save_path })
+    pub fn records(mut self, records: Vec<BenchmarkRecord>) -> Self {
+        self.records = records;
+        self
+    }
+
+    pub fn save_path(mut self, path: &str) -> Self {
+        self.save_path = if path.ends_with(".parquet") { path.to_string() } else { format!("{}.parquet", path) };
+        self
+    }
+
+    /// Sets the range from raw values [start, end, step].
+    pub fn range(mut self, range: [u64; 3]) -> Self {
+        self.range = range;
+        self
+    }
+
+    /// Sets the range from human-readable values, converting using token decimals.
+    pub fn range_from_human(mut self, range: [f64; 3], dec: u8) -> Self {
+        self.range = [Misc::to_raw(range[0], dec), Misc::to_raw(range[1], dec), Misc::to_raw(range[2], dec)];
+        self
+    }
+
+    /// Returns the total number of iterations for this range configuration.
+    pub fn range_count(&self) -> u64 {
+        (self.range[1] - self.range[0]) / self.range[2] + 1
+    }
+
+    /// Returns an iterator over all values from start to end (inclusive).
+    pub fn range_iter(&self) -> impl Iterator<Item = u64> {
+        let [start, end, step] = self.range;
+        (start..=end).step_by(step as usize)
+    }
+
+    /// Returns the end value of the range.
+    pub fn range_end(&self) -> u64 {
+        self.range[1]
+    }
+
+    /// Returns the time string.
+    pub fn time(&self) -> &str {
+        &self.time
     }
 
     pub fn save(&self) -> eyre::Result<()> {
@@ -1185,45 +1235,6 @@ impl Benchmark {
         ParquetWriter::new(&mut file).finish(&mut df.clone())?;
 
         Ok(())
-    }
-}
-
-/// Benchmark Range configuration with normalized values.
-#[derive(Debug, Clone, Copy)]
-pub struct BenchmarkRange {
-    start: u64,
-    end: u64,
-    step: u64,
-}
-
-impl BenchmarkRange {
-    /// Creates normalized benchmark range from human-readable values.
-    ///
-    /// Converts floating-point token amounts to their base unit representation
-    /// using the token's decimal places.
-    ///
-    /// # Arguments
-    /// * `range` - Array of [start, end, step] in human-readable token amounts
-    /// * `dec` - Number of decimal places for the token (e.g., 9 for SOL, 6 for USDC)
-    ///
-    /// # Example
-    /// ```
-    /// // For WSOL (9 decimals): 1.0 to 100.0 with step 0.5
-    /// let range = BenchmarkRange::from_human([1.0, 100.0, 0.5], 9);
-    /// assert_eq!(range.start, 1_000_000_000); // 1 SOL in lamports
-    /// ```
-    pub fn from_human(range: [f64; 3], dec: u8) -> Self {
-        Self { start: Misc::to_raw(range[0], dec), end: Misc::to_raw(range[1], dec), step: Misc::to_raw(range[2], dec) }
-    }
-
-    /// Returns the total number of iterations for this step configuration.
-    pub fn count(&self) -> u64 {
-        (self.end - self.start) / self.step + 1
-    }
-
-    /// Returns an iterator over all step values from start to end (inclusive).
-    pub fn iter(&self) -> impl Iterator<Item = u64> {
-        (self.start..=self.end).step_by(self.step as usize)
     }
 }
 
@@ -1273,8 +1284,7 @@ impl Run {
         let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
         let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
 
-        let range = BenchmarkRange::from_human(*range, src_dec);
-        let time_fmt = Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let benchmark = Benchmark::new().range_from_human(*range, src_dec);
         let multi = MultiProgress::new();
 
         let (slot, accs_map) = if common.jit_accounts {
@@ -1288,26 +1298,25 @@ impl Run {
             let handles: Vec<_> = pmms
                 .iter()
                 .map(|pmm| {
-                    let (cfg, multi, mints, time) = (&self.cfg, &multi, &mints, &time_fmt);
+                    let (cfg, multi, mints) = (&self.cfg, &multi, &mints);
                     let (src_name, dst_name) = (&src_name, &dst_name);
                     let pmm_accs = accs_map.get(pmm).cloned().unwrap_or_default();
+                    let benchmark = benchmark.clone();
 
                     s.spawn(move || -> eyre::Result<()> {
                         // start up the progress bar only when all the spawned threads
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.load_programs(&[*pmm])?;
-                            env.setup_wallet(&src_mint, range.end, consts::AIRDROP_AMOUNT)?;
+                            env.load_programs(&[*pmm])?.setup_wallet(&src_mint, benchmark.range_end(), consts::AIRDROP_AMOUNT)?;
 
                             let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
-
                             Ok((env, src_ata, dst_ata))
                         })?;
 
                         let market = cfg.get_market(pmm).unwrap_or_else(|| panic!("{} not configured", pmm)).to_string();
 
-                        let pb = multi.add(ProgressBar::new(range.count()));
+                        let pb = multi.add(ProgressBar::new(benchmark.range_count()));
                         pb.set_style(
                             ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars(consts::PROGRESS_CHARS),
                         );
@@ -1317,13 +1326,11 @@ impl Run {
                         let routes: Vec<Vec<magnus_router_client::types::Route>> =
                             vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
 
-                        range.iter().try_for_each(|amount_in| -> eyre::Result<()> {
+                        benchmark.range_iter().try_for_each(|amount_in| -> eyre::Result<()> {
                             env.reset_wallet(&src_mint, amount_in)?;
                             env.load_accounts(&pmm_accs)?;
 
-                            let order_id = Misc::gen_order_id();
-                            let mut swap_builder = SwapBuilder::new();
-                            let swap = swap_builder
+                            let mut swap_builder = SwapBuilder::new()
                                 .payer(env.wallet_pubkey())
                                 .source_token_account(src_ata)
                                 .destination_token_account(dst_ata)
@@ -1334,20 +1341,20 @@ impl Run {
                                 .min_return(1)
                                 .amounts(vec![amount_in])
                                 .routes(routes.clone())
-                                .order_id(order_id);
+                                .order_id(Misc::gen_order_id())
+                                .clone();
 
-                            let mut construct = ConstructSwap {
+                            let swap_ix = ConstructSwap {
                                 cfg: cfg.clone(),
-                                builder: swap,
+                                builder: &mut swap_builder,
                                 payer: env.wallet_pubkey(),
                                 src_ta: src_ata,
                                 dst_ta: dst_ata,
                                 src_mint,
                                 dst_mint,
-                            };
-
-                            construct.attach_pmm_accs(pmm);
-                            let swap_ix = construct.instruction();
+                            }
+                            .attach_pmm_accs(pmm)
+                            .instruction();
 
                             let tx = Transaction::new_signed_with_payer(
                                 &[swap_ix],
@@ -1387,8 +1394,9 @@ impl Run {
 
                         (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
 
-                        let filename = format!("{}/{}_{}_{}_{}.parquet", datasets_path, env.slot.unwrap_or_default(), pmm, market, time);
-                        Benchmark::new(records.clone(), &filename)?.save().is_ok().then(|| {
+                        let filename =
+                            format!("{}/{}_{}_{}_{}.parquet", datasets_path, env.slot.unwrap_or_default(), pmm, market, benchmark.time());
+                        benchmark.records(records.clone()).save_path(&filename).save().is_ok().then(|| {
                             pb.println(format!("[{}] saved {} records to {}", pmm, records.len(), filename));
                         });
 
@@ -1432,16 +1440,15 @@ impl Run {
         let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
         let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
 
-        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
-        env.load_programs(&flat_pmms)?;
-        env.get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?;
-
         let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
         let amount_in_sum: u64 = amount_in.iter().sum();
 
-        // - mint only the source token's desired amount (i.e the amount we're going to swap)
-        // - airdrop some SOL to cover fees
-        env.setup_wallet(&src_mint, amount_in_sum, consts::AIRDROP_AMOUNT)?;
+        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
+        env.load_programs(&flat_pmms)?.get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?.setup_wallet(
+            &src_mint,
+            amount_in_sum,
+            consts::AIRDROP_AMOUNT,
+        )?;
         info!(?env);
 
         let (src_ata, src_before) = (env.wallet_ata(&src_mint), env.token_balance_norm(&src_mint, src_dec));
@@ -1455,9 +1462,7 @@ impl Run {
             .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
             .collect();
 
-        let order_id = Misc::gen_order_id();
-        let mut swap_builder = SwapBuilder::new();
-        let swap = swap_builder
+        let mut swap_builder = SwapBuilder::new()
             .payer(env.wallet_pubkey())
             .source_token_account(src_ata)
             .destination_token_account(dst_ata)
@@ -1468,24 +1473,21 @@ impl Run {
             .min_return(1)
             .amounts(amount_in)
             .routes(routes.clone())
-            .order_id(order_id);
+            .order_id(Misc::gen_order_id())
+            .clone();
 
-        let mut construct = ConstructSwap {
+        let swap_ix = ConstructSwap {
             cfg: self.cfg.clone(),
-            builder: swap,
+            builder: &mut swap_builder,
             payer: env.wallet_pubkey(),
             src_ta: src_ata,
             dst_ta: dst_ata,
             src_mint,
             dst_mint,
-        };
+        }
+        .attach_pmms_accs(&flat_pmms)
+        .instruction();
 
-        // attach the necessary accounts for each of the implemented Prop AMMs
-        flat_pmms.iter().for_each(|pmm| {
-            construct.attach_pmm_accs(pmm);
-        });
-
-        let swap_ix = construct.instruction();
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");
         let amount_out = env.get_event_amount_out(&res);
