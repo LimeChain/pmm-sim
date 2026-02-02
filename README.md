@@ -21,18 +21,20 @@ Possible modes of execution include:
 - **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
 - **benchmark** - Benchmark swaps for any of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and range size. Benchmark data can be visualised with [plot.py](./scripts/plot.py).
 
-Exchange rate & CU plots for benchmarked swaps at slot `389129965`:
+Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
-![exchange_rate](./assets/389129965_exchange_rate.png)
+![exchange_rate](./assets/397549538_exchange_rate.png)
 _Figure 1: Exchange rate for benchmarked swaps_
 
-![cu_usage](./assets/389129965_compute_units.png)
+![cu_usage](./assets/397549538_compute_units.png)
 _Figure 2: Compute unit usage_
 
 All datasets are saved as `parquet` and available at [datasets](./datasets). To peek at the data through cli:
 
 ```sh
-duckdb -csv -c "SELECT * FROM 'datasets/389129965_goonfi_4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K_20251225-212154.parquet'" | column -t -s ,
+duckdb -csv \
+    -c "SELECT * FROM 'datasets/389129965_goonfi_4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K_20251225-212154.parquet'" \
+    | column -t -s ,
 ```
 
 ## Examples
@@ -49,6 +51,12 @@ cargo build --release
 
 ```
 ./target/release/pmm-sim single --amount-in=15000 --pmms=humidifi --weights=100 --src-token=USDC --dst-token=WSOL
+```
+
+##### Swap 69K USDC for WSOL using HumidiFi and BisonFi, in one route, split 25%,75% accordingly.
+
+```
+./target/release/pmm-sim single --amount-in=69000 --pmms=humidifi,bisonfi --weights=25,75 --src-token=WSOL --dst-token=USDC
 ```
 
 ##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM.
