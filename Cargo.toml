@@ -3,6 +3,14 @@ name = "pmm-sim"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "pmm_sim"
+path = "src/lib.rs"
+
+[bin]
+name = "pmm-sim"
+path = "src/main.rs"
+
 [dependencies]
 base64 = "0.22.1"
 chrono = "0.4.42"
