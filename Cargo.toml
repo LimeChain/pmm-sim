@@ -7,7 +7,7 @@ edition = "2024"
 name = "pmm_sim"
 path = "src/lib.rs"
 
-[bin]
+[[bin]]
 name = "pmm-sim"
 path = "src/main.rs"
 
