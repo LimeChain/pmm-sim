@@ -16,9 +16,15 @@ quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 # base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
 # quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
+# https://solscan.io/account/AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX
 # market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
 # base_ta = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
 # quote_ta = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
+
+# https://solscan.io/account/5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9 (WSOL-USD1)
+market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
+base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
+quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
 
 # https://solscan.io/account/FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 [tessera]
@@ -41,6 +47,8 @@ base_ta = "CRo8DBwrmd97DJfAnvCv96tZPL5Mktf2NZy2ZnhDer1A"
 quote_ta = "GhFfLFSprPpfoRaWakPMmJTMJBHuz6C694jYwxy2dAic"
 cfg = "FmxXDSR9WvpJTCh738D1LEDuhMoA8geCtZgHb3isy7Dp"
 oracle = "2ny7eGyZCoeEVTkNLf5HcnJFBKkyA4p4gcrtb3b8y8ou"
+base_mint = "So11111111111111111111111111111111111111112"
+quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 # https://solscan.io/account/2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi
 [zerofi]

@@ -38,22 +38,12 @@ use tracing::{debug, info, warn};
 /// Constants used throughout the simulation environment.
 /// Holds the CFG file paths, swappable token accounts and more;
 pub mod consts {
-    use solana_sdk::{pubkey, pubkey::Pubkey};
-
     pub const ROUTER: &str = "magnus-router";
     pub const SETUP_PATH: &str = "./setup.toml";
+    pub const TOKENS_PATH: &str = "./cfg/tokens.json";
     pub const DATASETS_PATH: &str = "./datasets";
     pub const PROGRAMS_PATH: &str = "./cfg/programs";
     pub const ACCOUNTS_PATH: &str = "./cfg/accounts";
-
-    pub const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
-    pub const WSOL_DECIMALS: u8 = 9;
-
-    pub const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-    pub const USDC_DECIMALS: u8 = 6;
-
-    pub const USDT: Pubkey = pubkey!("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
-    pub const USDT_DECIMALS: u8 = 6;
 
     pub const PROGRESS_CHARS: &str = "█▓░";
     pub const PROGRESS_TEMPLATE: &str = "{prefix:>12.bold} [{bar:40.cyan/blue}] {pos:>6}/{len:<6} ({percent}%)";
@@ -170,6 +160,8 @@ define_dex_configs! {
         quote_ta,
         cfg,
         oracle,
+        base_mint,
+        quote_mint,
     },
     ZeroFi => ZeroFiCfg : zerofi ("zerofi") {
         market,
@@ -272,11 +264,14 @@ pub struct CommonArgs {
     )]
     pub jit_programs: bool,
 
-    #[arg(long, env = "SRC_TOKEN", default_value = "wsol", help = "Source token: wsol, usdc, or usdt")]
-    pub src_token: Token,
+    #[arg(long, env = "SRC_TOKEN", default_value = "wsol", help = "Source token symbol")]
+    pub src_token: String,
 
-    #[arg(long, env = "DST_TOKEN", default_value = "usdc", help = "Destination token: wsol, usdc, or usdt")]
-    pub dst_token: Token,
+    #[arg(long, env = "DST_TOKEN", default_value = "usdc", help = "Destination token symbol")]
+    pub dst_token: String,
+
+    #[arg(long, env = "TOKENS_PATH", default_value = consts::TOKENS_PATH, help = "Path to the tokens configuration file")]
+    pub tokens_path: String,
 
     #[arg(long, env = "SETUP_PATH", default_value = consts::SETUP_PATH, help = "Path to the setup configuration file")]
     pub setup_path: String,
@@ -458,51 +453,26 @@ impl Command {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Token {
-    WSOL,
-    USDC,
-    USDT,
+#[derive(Debug, Clone, Deserialize)]
+pub struct Token {
+    pub symbol: String,
+    #[serde(deserialize_with = "Misc::deserialize_pubkey")]
+    pub addr: Pubkey,
+    pub dec: u8,
 }
 
-impl FromStr for Token {
-    type Err = String;
+pub struct Tokens(HashMap<String, Token>);
 
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "wsol" | "sol" => Ok(Token::WSOL),
-            "usdc" => Ok(Token::USDC),
-            "usdt" => Ok(Token::USDT),
-            _ => Err(format!("invalid token '{}'. valid options: wsol, usdc, usdt", s)),
-        }
-    }
-}
-
-impl Display for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Token::WSOL => f.write_str("WSOL"),
-            Token::USDT => f.write_str("USDT"),
-            Token::USDC => f.write_str("USDC"),
-        }
-    }
-}
-
-impl Token {
-    fn get_addr(&self) -> Pubkey {
-        match *self {
-            Token::WSOL => consts::WSOL,
-            Token::USDC => consts::USDC,
-            Token::USDT => consts::USDT,
-        }
+impl Tokens {
+    pub fn load(path: &str) -> eyre::Result<Self> {
+        let contents = fs::read_to_string(path)?;
+        let entries: Vec<Token> = serde_json::from_str(&contents)?;
+        let map = entries.into_iter().map(|e| (e.symbol.to_uppercase(), e)).collect();
+        Ok(Self(map))
     }
 
-    fn get_decimals(&self) -> u8 {
-        match *self {
-            Token::WSOL => consts::WSOL_DECIMALS,
-            Token::USDC => consts::USDC_DECIMALS,
-            Token::USDT => consts::USDT_DECIMALS,
-        }
+    pub fn get(&self, symbol: &str) -> eyre::Result<&Token> {
+        self.0.get(&symbol.to_uppercase()).ok_or_else(|| eyre::eyre!("unknown token '{symbol}' - verify the token exists at TOKEN_PATH"))
     }
 }
 
@@ -635,7 +605,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
         programs.iter().try_for_each(|(_, program_id, elf_bytes)| self.svm.add_program(*program_id, elf_bytes))?;
 
-        info!("jit-loaded {} program(s)", programs.len());
         Ok(self)
     }
 
@@ -645,7 +614,6 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
         programs.into_iter().try_for_each(|(program_id, path)| self.svm.add_program_from_file(program_id, path))?;
 
-        info!("loaded {pmms:?} program(s)");
         Ok(self)
     }
 
@@ -818,8 +786,8 @@ impl<'a> ConstructSwap<'a> {
             AccountMeta::new_readonly(cfg.cfg, false),
             AccountMeta::new(cfg.base_ta, false),
             AccountMeta::new(cfg.quote_ta, false),
-            AccountMeta::new_readonly(consts::WSOL, false),
-            AccountMeta::new_readonly(consts::USDC, false),
+            AccountMeta::new(cfg.base_mint, false),
+            AccountMeta::new(cfg.quote_mint, false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
@@ -1398,16 +1366,17 @@ impl App {
     pub fn benchmark(&self) -> eyre::Result<()> {
         let Command::Benchmark { common, datasets_path, pmms, range } = &self.args.command else { unreachable!() };
 
-        let rpc_client = Arc::new(RpcClient::new(common.http_url.expose_secret().to_string()));
-        let (src_mint, src_dec, src_name) = (common.src_token.get_addr(), common.src_token.get_decimals(), common.src_token.to_string());
-        let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
-        let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
+        let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
-        let benchmark = Benchmark::new().range_from_human(*range, src_dec);
+        let tokens = Tokens::load(&common.tokens_path)?;
+        let (src_token, dst_token) = (tokens.get(&common.src_token)?, tokens.get(&common.dst_token)?);
+        let mints = vec![(src_token.addr, src_token.dec), (dst_token.addr, dst_token.dec)];
+
+        let benchmark = Benchmark::new().range_from_human(*range, src_token.dec);
         let multi = MultiProgress::new();
 
         let (slot, accs_map) = if common.jit_accounts {
-            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client.clone(), &self.cfg)?;
+            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
             (Some(s), m)
         } else {
             Misc::read_accounts_from_disk(pmms, &common.accounts_path)?
@@ -1418,8 +1387,7 @@ impl App {
                 .iter()
                 .map(|pmm| {
                     let (cfg, multi, mints) = (&self.cfg, &multi, &mints);
-                    let (src_name, dst_name) = (&src_name, &dst_name);
-                    let rpc_client = rpc_client.clone();
+                    let rpc_client = &rpc_client;
                     let pmm_accs = accs_map.get(pmm).cloned().unwrap_or_default();
                     let benchmark = benchmark.clone();
 
@@ -1429,12 +1397,12 @@ impl App {
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
                             env.get_and_load_programs(&[*pmm], common.jit_programs, Some(&rpc_client))?.setup_wallet(
-                                &src_mint,
+                                &src_token.addr,
                                 benchmark.range_end(),
                                 consts::AIRDROP_AMOUNT,
                             )?;
 
-                            let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
+                            let (src_ata, dst_ata) = (env.wallet_ata(&src_token.addr), env.wallet_ata(&dst_token.addr));
                             Ok((env, src_ata, dst_ata))
                         })?;
 
@@ -1451,15 +1419,15 @@ impl App {
                             vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
 
                         benchmark.range_iter().try_for_each(|amount_in| -> eyre::Result<()> {
-                            env.reset_wallet(&src_mint, amount_in)?;
+                            env.reset_wallet(&src_token.addr, amount_in)?;
                             env.set_accounts(&pmm_accs)?;
 
                             let mut swap_builder = SwapBuilder::new()
                                 .payer(env.wallet_pubkey())
                                 .source_token_account(src_ata)
                                 .destination_token_account(dst_ata)
-                                .source_mint(src_mint)
-                                .destination_mint(dst_mint)
+                                .source_mint(src_token.addr)
+                                .destination_mint(dst_token.addr)
                                 .amount_in(amount_in)
                                 .expect_amount_out(1)
                                 .min_return(1)
@@ -1474,8 +1442,8 @@ impl App {
                                 payer: env.wallet_pubkey(),
                                 src_ta: src_ata,
                                 dst_ta: dst_ata,
-                                src_mint,
-                                dst_mint,
+                                src_mint: src_token.addr,
+                                dst_mint: dst_token.addr,
                             }
                             .attach_pmm_accs(pmm)
                             .instruction();
@@ -1503,14 +1471,14 @@ impl App {
                                 slot: env.slot.unwrap_or_default(),
                                 pmm: pmm.to_string(),
                                 market: market.clone(),
-                                src_token: src_name.clone(),
-                                dst_token: dst_name.clone(),
-                                amount_in: Misc::to_human(amount_in, src_dec),
-                                amount_out: Misc::to_human(amount_out, dst_dec),
+                                src_token: src_token.symbol.clone(),
+                                dst_token: dst_token.symbol.clone(),
+                                amount_in: Misc::to_human(amount_in, src_token.dec),
+                                amount_out: Misc::to_human(amount_out, dst_token.dec),
                                 compute_units: res.compute_units_consumed,
                             });
 
-                            pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_dec)));
+                            pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_token.dec)));
                             pb.inc(1);
 
                             Ok(())
@@ -1560,23 +1528,23 @@ impl App {
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
         let flat_pmms: Vec<Dex> = pmms.iter().flatten().copied().collect();
 
-        let (src_mint, src_dec, src_name) = (common.src_token.get_addr(), common.src_token.get_decimals(), common.src_token.to_string());
-        let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
-        let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
+        let tokens = Tokens::load(&common.tokens_path)?;
+        let (src_token, dst_token) = (tokens.get(&common.src_token)?, tokens.get(&common.dst_token)?);
+        let mints = vec![(src_token.addr, src_token.dec), (dst_token.addr, dst_token.dec)];
 
-        let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_dec)).collect();
+        let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_token.dec)).collect();
         let amount_in_sum: u64 = amount_in.iter().sum();
 
         let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
         env.get_and_load_programs(&flat_pmms, common.jit_programs, Some(&rpc_client))?
             .get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?
-            .setup_wallet(&src_mint, amount_in_sum, consts::AIRDROP_AMOUNT)?;
+            .setup_wallet(&src_token.addr, amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
-        let (src_ata, src_before) = (env.wallet_ata(&src_mint), env.token_balance_norm(&src_mint, src_dec));
-        let (dst_ata, dst_before) = (env.wallet_ata(&dst_mint), env.token_balance_norm(&dst_mint, dst_dec));
+        let (src_ata, src_before) = (env.wallet_ata(&src_token.addr), env.token_balance_norm(&src_token.addr, src_token.dec));
+        let (dst_ata, dst_before) = (env.wallet_ata(&dst_token.addr), env.token_balance_norm(&dst_token.addr, dst_token.dec));
 
-        debug!(?src_name, ?src_before, ?dst_name, ?dst_before);
+        debug!(?src_token.symbol, ?src_before, ?dst_token.symbol, ?dst_before);
 
         let routes: Vec<Vec<magnus_router_client::types::Route>> = pmms
             .iter()
@@ -1588,8 +1556,8 @@ impl App {
             .payer(env.wallet_pubkey())
             .source_token_account(src_ata)
             .destination_token_account(dst_ata)
-            .source_mint(src_mint)
-            .destination_mint(dst_mint)
+            .source_mint(src_token.addr)
+            .destination_mint(dst_token.addr)
             .amount_in(amount_in_sum)
             .expect_amount_out(1)
             .min_return(1)
@@ -1604,8 +1572,8 @@ impl App {
             payer: env.wallet_pubkey(),
             src_ta: src_ata,
             dst_ta: dst_ata,
-            src_mint,
-            dst_mint,
+            src_mint: src_token.addr,
+            dst_mint: dst_token.addr,
         }
         .attach_pmms_accs(&flat_pmms)
         .instruction();
@@ -1615,11 +1583,11 @@ impl App {
         let amount_out = env.get_event_amount_out(&res);
 
         info!(
-            src_token = %src_name,
-            dst_token = %dst_name,
+            src_token = %src_token.symbol,
+            dst_token = %dst_token.symbol,
             routes = ?routes,
-            amount_in = ?Misc::to_human(amount_in_sum, src_dec),
-            amount_out = ?Misc::to_human(amount_out, dst_dec),
+            amount_in = ?Misc::to_human(amount_in_sum, src_token.dec),
+            amount_out = ?Misc::to_human(amount_out, dst_token.dec),
             cu = res.compute_units_consumed
         );
 
@@ -1629,7 +1597,14 @@ impl App {
 
 #[cfg(test)]
 mod tests {
+    use solana_sdk::pubkey;
+
     use super::*;
+
+    const WSOL: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
+    const WSOL_DECIMALS: u8 = 9;
+    const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+    const USDC_DECIMALS: u8 = 6;
 
     mod cli {
         use super::*;
@@ -1765,6 +1740,77 @@ mod tests {
         }
     }
 
+    mod tokens {
+        use super::*;
+
+        fn sample_json() -> &'static str {
+            r#"[
+                {"symbol": "wsol", "addr": "So11111111111111111111111111111111111111112", "dec": 9},
+                {"symbol": "usdc", "addr": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "dec": 6}
+            ]"#
+        }
+
+        fn tokens_from_json(json: &str) -> Tokens {
+            let entries: Vec<Token> = serde_json::from_str(json).unwrap();
+            let map = entries.into_iter().map(|e| (e.symbol.to_uppercase(), e)).collect();
+            Tokens(map)
+        }
+
+        #[test]
+        fn test_token_deserializes_from_json() {
+            let json = r#"{"symbol": "wsol", "addr": "So11111111111111111111111111111111111111112", "dec": 9}"#;
+            let token: Token = serde_json::from_str(json).unwrap();
+
+            assert_eq!(token.symbol, "wsol");
+            assert_eq!(token.addr, WSOL);
+            assert_eq!(token.dec, 9);
+        }
+
+        #[test]
+        fn test_tokens_get_case_insensitive() {
+            let tokens = tokens_from_json(sample_json());
+
+            assert!(tokens.get("wsol").is_ok());
+            assert!(tokens.get("WSOL").is_ok());
+            assert!(tokens.get("Wsol").is_ok());
+            assert_eq!(tokens.get("wsol").unwrap().addr, WSOL);
+        }
+
+        #[test]
+        fn test_tokens_get_unknown_symbol_errors() {
+            let tokens = tokens_from_json(sample_json());
+
+            assert!(tokens.get("btc").is_err());
+        }
+
+        #[test]
+        fn test_tokens_get_returns_correct_entry() {
+            let tokens = tokens_from_json(sample_json());
+
+            let usdc = tokens.get("usdc").unwrap();
+            assert_eq!(usdc.addr, USDC);
+            assert_eq!(usdc.dec, 6);
+        }
+
+        #[test]
+        fn test_tokens_load_from_file() {
+            let tokens = Tokens::load(consts::TOKENS_PATH).unwrap();
+
+            let wsol = tokens.get("wsol").unwrap();
+            assert_eq!(wsol.addr, WSOL);
+            assert_eq!(wsol.dec, 9);
+
+            let usdc = tokens.get("usdc").unwrap();
+            assert_eq!(usdc.addr, USDC);
+            assert_eq!(usdc.dec, 6);
+        }
+
+        #[test]
+        fn test_tokens_load_nonexistent_file_errors() {
+            assert!(Tokens::load("/nonexistent/path.json").is_err());
+        }
+    }
+
     mod environment {
         use super::*;
 
@@ -1804,7 +1850,7 @@ mod tests {
 
         #[test]
         fn test_new_with_mints_creates_mint_accounts() {
-            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+            let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
 
             let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
 
@@ -1812,8 +1858,8 @@ mod tests {
             assert_eq!(env.mints.unwrap().len(), 2);
 
             // verify mint accounts exist in SVM
-            let wsol_account = env.svm.get_account(&consts::WSOL);
-            let usdc_account = env.svm.get_account(&consts::USDC);
+            let wsol_account = env.svm.get_account(&WSOL);
+            let usdc_account = env.svm.get_account(&USDC);
 
             assert!(wsol_account.is_some());
             assert!(usdc_account.is_some());
@@ -1822,38 +1868,38 @@ mod tests {
             let wsol_mint = spl_token::state::Mint::unpack(&wsol_account.unwrap().data).unwrap();
             let usdc_mint = spl_token::state::Mint::unpack(&usdc_account.unwrap().data).unwrap();
 
-            assert_eq!(wsol_mint.decimals, consts::WSOL_DECIMALS);
-            assert_eq!(usdc_mint.decimals, consts::USDC_DECIMALS);
+            assert_eq!(wsol_mint.decimals, WSOL_DECIMALS);
+            assert_eq!(usdc_mint.decimals, USDC_DECIMALS);
             assert!(wsol_mint.is_initialized);
             assert!(usdc_mint.is_initialized);
         }
 
         #[test]
         fn test_wallet_ata_derives_correct_address() {
-            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS)];
+            let mints = vec![(WSOL, WSOL_DECIMALS)];
             let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
 
-            let expected_ata = get_associated_token_address(&env.wallet_pubkey(), &consts::WSOL);
-            let actual_ata = env.wallet_ata(&consts::WSOL);
+            let expected_ata = get_associated_token_address(&env.wallet_pubkey(), &WSOL);
+            let actual_ata = env.wallet_ata(&WSOL);
 
             assert_eq!(actual_ata, expected_ata);
         }
 
         #[test]
         fn test_setup_wallet_creates_atas_and_funds() {
-            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+            let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
             let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
 
             let src_amount = 1_000_000_000u64; // 1 SOL
             let airdrop = 10_000_000_000u64; // 10 SOL for fees
 
-            env.setup_wallet(&consts::WSOL, src_amount, airdrop).unwrap();
+            env.setup_wallet(&WSOL, src_amount, airdrop).unwrap();
 
             // verify src token balance is correct
-            assert_eq!(env.token_balance(&consts::WSOL), src_amount);
+            assert_eq!(env.token_balance(&WSOL), src_amount);
 
             // verify dst token balance is zero
-            assert_eq!(env.token_balance(&consts::USDC), 0);
+            assert_eq!(env.token_balance(&USDC), 0);
 
             // verify SOL was airdropped
             let wallet_account = env.svm.get_account(&env.wallet_pubkey());
@@ -1863,42 +1909,42 @@ mod tests {
 
         #[test]
         fn test_reset_wallet_restores_balances() {
-            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS), (consts::USDC, consts::USDC_DECIMALS)];
+            let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
             let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
 
-            env.setup_wallet(&consts::WSOL, 1_000_000_000, 10_000_000_000).unwrap();
+            env.setup_wallet(&WSOL, 1_000_000_000, 10_000_000_000).unwrap();
 
             // simulate a swap by manually changing balances
-            let wsol_ata = env.wallet_ata(&consts::WSOL);
-            let usdc_ata = env.wallet_ata(&consts::USDC);
-            env.svm.set_account(wsol_ata, Misc::mk_ata(&consts::WSOL, &env.wallet_pubkey(), 500_000_000)).unwrap();
-            env.svm.set_account(usdc_ata, Misc::mk_ata(&consts::USDC, &env.wallet_pubkey(), 100_000_000)).unwrap();
+            let wsol_ata = env.wallet_ata(&WSOL);
+            let usdc_ata = env.wallet_ata(&USDC);
+            env.svm.set_account(wsol_ata, Misc::mk_ata(&WSOL, &env.wallet_pubkey(), 500_000_000)).unwrap();
+            env.svm.set_account(usdc_ata, Misc::mk_ata(&USDC, &env.wallet_pubkey(), 100_000_000)).unwrap();
 
             // seset wallet
             let new_amount = 2_000_000_000u64;
-            env.reset_wallet(&consts::WSOL, new_amount).unwrap();
+            env.reset_wallet(&WSOL, new_amount).unwrap();
 
             // verify balances are reset
-            assert_eq!(env.token_balance(&consts::WSOL), new_amount);
-            assert_eq!(env.token_balance(&consts::USDC), 0);
+            assert_eq!(env.token_balance(&WSOL), new_amount);
+            assert_eq!(env.token_balance(&USDC), 0);
         }
 
         #[test]
         fn test_token_balance_returns_zero_for_nonexistent_ata() {
             let env = Environment::new("", "", None, default_cfg(), None).unwrap();
 
-            assert_eq!(env.token_balance(&consts::WSOL), 0);
+            assert_eq!(env.token_balance(&WSOL), 0);
         }
 
         #[test]
         fn test_token_balance_norm_converts_correctly() {
-            let mints = vec![(consts::WSOL, consts::WSOL_DECIMALS)];
+            let mints = vec![(WSOL, WSOL_DECIMALS)];
             let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
 
             let raw_amount = 1_500_000_000u64; // 1.5 SOL in lamports
-            env.setup_wallet(&consts::WSOL, raw_amount, 10_000_000_000).unwrap();
+            env.setup_wallet(&WSOL, raw_amount, 10_000_000_000).unwrap();
 
-            let normalized = env.token_balance_norm(&consts::WSOL, consts::WSOL_DECIMALS);
+            let normalized = env.token_balance_norm(&WSOL, WSOL_DECIMALS);
 
             assert!((normalized - 1.5).abs() < f64::EPSILON);
         }

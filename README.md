@@ -158,6 +158,8 @@ Programs are by default loaded (saved) from (at) [cfg/programs](./cfg/programs).
 
 Datasets are by default loaded (saved) from (at) [datasets](./datasets). Tweaking the source/destination is possible via `--datasets-path` or `DATASETS_PATH` env variable.
 
+The supported tokens are loaded from (at) [cfg/tokens.json](./cfg/tokens.json). Tweaking the source/destination is possible via `--tokens-path` or `TOKENS_PATH` env variable.
+
 ---
 
 Check out the CLI subcommands for additional clues (i.e `pmm-sim single --help`)
