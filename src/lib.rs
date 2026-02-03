@@ -1396,7 +1396,7 @@ impl App {
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.get_and_load_programs(&[*pmm], common.jit_programs, Some(&rpc_client))?.setup_wallet(
+                            env.get_and_load_programs(&[*pmm], common.jit_programs, Some(rpc_client))?.setup_wallet(
                                 &src_token.addr,
                                 benchmark.range_end(),
                                 consts::AIRDROP_AMOUNT,
