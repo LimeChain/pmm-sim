@@ -409,12 +409,39 @@ pub enum Command {
         )]
         pmms: Vec<Dex>,
     },
+
+    #[command(
+        about = "Fetch programs from the specified Pmms via RPC and save them locally (presumably for later usage).",
+        after_help = "Examples:
+  pmm-sim fetch-programs --pmms=humidifi
+  pmm-sim fetch-programs --pmms=humidifi,obric-v2,zerofi,solfi-v2
+  pmm-sim \
+                      fetch-programs --pmms=humidifi --http-url=https://my-rpc.com"
+    )]
+    FetchPrograms {
+        #[arg(long, env = "HTTP_URL", default_value = "https://api.mainnet.solana.com")]
+        http_url: SecretString,
+
+        #[arg(long, env = "SETUP_PATH", default_value = consts::SETUP_PATH, help = "Path to the setup configuration file")]
+        setup_path: String,
+
+        #[arg(long, env = "PROGRAMS_PATH", default_value = consts::PROGRAMS_PATH, help = "Directory to save fetched programs")]
+        programs_path: String,
+
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_values_t = CliArgs::default_pmm(),
+            help = "Comma-separated list of Prop AMMs to fetch programs for"
+        )]
+        pmms: Vec<Dex>,
+    },
 }
 
 impl Command {
     pub fn setup_path(&self) -> &str {
         match self {
-            Command::FetchAccounts { setup_path, .. } => setup_path,
+            Command::FetchAccounts { setup_path, .. } | Command::FetchPrograms { setup_path, .. } => setup_path,
             Command::Benchmark { common, .. } => &common.setup_path,
             Command::Single { common, .. } => &common.setup_path,
             Command::Multi { common, .. } => &common.setup_path,
@@ -424,6 +451,7 @@ impl Command {
     pub fn name(&self) -> &'static str {
         match self {
             Command::FetchAccounts { .. } => "FetchAccounts",
+            Command::FetchPrograms { .. } => "FetchPrograms",
             Command::Benchmark { .. } => "Benchmark",
             Command::Single { .. } => "SingleRouteSwaps",
             Command::Multi { .. } => "MultiRouteSwaps",
@@ -606,7 +634,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     pub fn jit_programs(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
         let programs = Misc::fetch_programs(pmms, client)?;
 
-        programs.iter().try_for_each(|(program_id, elf_bytes)| self.svm.add_program(*program_id, elf_bytes))?;
+        programs.iter().try_for_each(|(_, program_id, elf_bytes)| self.svm.add_program(*program_id, elf_bytes))?;
 
         info!("jit-loaded {} program(s)", programs.len());
         Ok(self)
@@ -1155,7 +1183,7 @@ impl Misc {
     ///
     /// For each *upgradeable* program, resolves the programdata account and strips the
     /// 45-byte header to extract the raw ELF bytecode.
-    pub fn fetch_programs(pmms: &[Dex], client: &RpcClient) -> eyre::Result<Vec<(Pubkey, Vec<u8>)>> {
+    pub fn fetch_programs(pmms: &[Dex], client: &RpcClient) -> eyre::Result<Vec<(Dex, Pubkey, Vec<u8>)>> {
         let mut programs = vec![];
 
         pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
@@ -1170,7 +1198,7 @@ impl Misc {
             // strip 45-byte programdata header (tag + slot + upgrade authority)
             // https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861C66-L1862
             let elf_bytes = programdata_acc.data[45..].to_vec();
-            programs.push((program_id, elf_bytes));
+            programs.push((*pmm, program_id, elf_bytes));
 
             info!("fetched program {pmm} ({program_id})");
             Ok(())
@@ -1320,6 +1348,7 @@ impl App {
     pub fn start(&self) -> eyre::Result<()> {
         match &self.args.command {
             Command::FetchAccounts { .. } => self.fetch_accounts(),
+            Command::FetchPrograms { .. } => self.fetch_programs(),
             Command::Benchmark { .. } => self.benchmark(),
             Command::Single { .. } | Command::Multi { .. } => self.simulate(),
         }
@@ -1342,6 +1371,28 @@ impl App {
         })?;
 
         info!("done fetching accounts at slot {slot}");
+        Ok(())
+    }
+
+    pub fn fetch_programs(&self) -> eyre::Result<()> {
+        let Command::FetchPrograms { http_url, programs_path, pmms, .. } = &self.args.command else { unreachable!() };
+
+        let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
+        let programs = Misc::fetch_programs(pmms, &rpc_client)?;
+
+        let data_dir = Path::new(programs_path.as_str());
+        if !data_dir.exists() {
+            fs::create_dir_all(data_dir)?;
+        }
+
+        programs.iter().try_for_each(|(dex, _program_id, elf_bytes)| -> eyre::Result<()> {
+            let path = data_dir.join(format!("{}.so", dex));
+            fs::write(&path, elf_bytes)?;
+            info!("saved program {dex} to {}", path.display());
+            Ok(())
+        })?;
+
+        info!("done fetching {} program(s)", programs.len());
         Ok(())
     }
 
