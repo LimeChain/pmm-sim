@@ -6,25 +6,25 @@ quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
 ## other humidifi markets
 
-# https://solscan.io/account/DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW
+## https://solscan.io/account/DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW
 # market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
 # base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
 # quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
 
-# https://solscan.io/account/6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ
+## https://solscan.io/account/6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ
 # market = "6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ"
 # base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
 # quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
-# https://solscan.io/account/AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX
+## https://solscan.io/account/AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX
 # market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
 # base_ta = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
 # quote_ta = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
 
-# https://solscan.io/account/5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9 (WSOL-USD1)
-market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
-base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
-quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
+## https://solscan.io/account/5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9 (WSOL-USD1)
+#market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
+#base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
+#quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
 
 # https://solscan.io/account/FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
 [tessera]
