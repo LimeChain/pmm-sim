@@ -3,7 +3,6 @@
 //! Simulate and/or Benchmark swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
-#![deny(unused)]
 
 use std::{
     collections::{HashMap, HashSet},
