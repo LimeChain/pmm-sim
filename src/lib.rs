@@ -602,41 +602,23 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Ok(self)
     }
 
-    /// Loads the router program and all required PMM programs into the SVM.
-    ///
-    /// Programs are loaded from `.so` files in the configured `programs_path` directory.
-    pub fn static_programs(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
-        pmms.iter().try_for_each(|pmm| {
-            let program_id = pmm.program_id();
+    /// Loads the Prop AMM programs by fetching them from RPC.
+    pub fn jit_programs(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
+        let programs = Misc::fetch_programs(pmms, client)?;
 
-            self.svm.add_program_from_file(Pubkey::new_from_array(program_id.to_bytes()), format!("{}/{}.so", self.programs_path, pmm))
-        })?;
+        programs.iter().try_for_each(|(program_id, elf_bytes)| self.svm.add_program(*program_id, elf_bytes))?;
 
+        info!("jit-loaded {} program(s)", programs.len());
         Ok(self)
     }
 
-    /// Loads the Prop AMM programs by fetching them on-the-go.
-    /// The implementation considers only upgradeable programs.
-    pub fn jit_programs(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
-        pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
-            let program_id = Pubkey::new_from_array(pmm.program_id().to_bytes());
-            let acc = client.get_account(&program_id)?;
-            debug!(?pmm, ?program_id, ?acc);
+    /// Loads the router program and all required PMM programs from disk.
+    pub fn static_programs(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
+        let programs = Misc::read_programs_from_disk(pmms, &self.programs_path.to_string())?;
 
-            // upgradeable programs: 4-byte tag + 32-byte programdata address
-            // https://github.com/solana-labs/solana/blob/master/sdk/program/src/bpf_loader_upgradeable.rs#L70-L73
-            let downstream_pubkey = Pubkey::new_from_array(acc.data[4..36].try_into()?);
-            let downstream_acc = client.get_account(&downstream_pubkey)?;
-            debug!(?pmm, ?downstream_pubkey, data_len = downstream_acc.data.len());
+        programs.into_iter().try_for_each(|(program_id, path)| self.svm.add_program_from_file(program_id, path))?;
 
-            // strip 45-byte programdata header (tag + slot + upgrade authority)
-            // i.e https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861C66-L1862
-            let elf_bytes = &downstream_acc.data[45..];
-            self.svm.add_program(program_id, elf_bytes)?;
-
-            Ok(())
-        })?;
-
+        info!("loaded {pmms:?} program(s)");
         Ok(self)
     }
 
@@ -1169,9 +1151,47 @@ impl Misc {
         Ok((slot, pubkey, Account { lamports, data, owner, executable, rent_epoch }))
     }
 
-    //pub fn fetch_programs(pmms: &[Dex], client: &RpcClient) {
-    //    let mut programs = vec![];
-    //}
+    /// Fetches program ELF bytes from RPC for the given PMMs.
+    ///
+    /// For each *upgradeable* program, resolves the programdata account and strips the
+    /// 45-byte header to extract the raw ELF bytecode.
+    pub fn fetch_programs(pmms: &[Dex], client: &RpcClient) -> eyre::Result<Vec<(Pubkey, Vec<u8>)>> {
+        let mut programs = vec![];
+
+        pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
+            let program_id = Pubkey::new_from_array(pmm.program_id().to_bytes());
+            let acc = client.get_account(&program_id)?;
+
+            // upgradeable programs: 4-byte tag + 32-byte programdata address
+            // https://github.com/solana-labs/solana/blob/master/sdk/program/src/bpf_loader_upgradeable.rs#L70-L73
+            let programdata_pubkey = Pubkey::new_from_array(acc.data[4..36].try_into()?);
+            let programdata_acc = client.get_account(&programdata_pubkey)?;
+
+            // strip 45-byte programdata header (tag + slot + upgrade authority)
+            // https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861C66-L1862
+            let elf_bytes = programdata_acc.data[45..].to_vec();
+            programs.push((program_id, elf_bytes));
+
+            info!("fetched program {pmm} ({program_id})");
+            Ok(())
+        })?;
+
+        Ok(programs)
+    }
+
+    /// Reads program .so files from disk for the given PMMs.
+    pub fn read_programs_from_disk(pmms: &[Dex], programs_path: &str) -> eyre::Result<Vec<(Pubkey, String)>> {
+        let mut programs = vec![];
+
+        pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
+            let program_id = Pubkey::new_from_array(pmm.program_id().to_bytes());
+            let path = format!("{}/{}.so", programs_path, pmm);
+            programs.push((program_id, path));
+            Ok(())
+        })?;
+
+        Ok(programs)
+    }
 
     /// Custom serde deserializer for `Pubkey` from a base58-encoded string.
     ///
