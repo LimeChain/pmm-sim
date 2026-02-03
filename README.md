@@ -12,7 +12,9 @@ Supported Prop AMMs:
 - [x] GoonFi
 - [x] BisonFi
 
-The swaps can be done either with the local static accounts that can be found at [cfg/accounts](./cfg/accounts) or with the current live accounts (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts. The markets are specified in [setup.toml](./setup.toml).
+The swaps can be done either with the local static accounts/programs that can be found at [cfg/accounts](./cfg/accounts) and [cfg/programs](./cfg/programs) respectively, or with the current live accounts/programs (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts/programs.
+
+The markets for each Prop AMM are specified in [setup.toml](./setup.toml).
 
 Possible modes of execution include:
 
@@ -119,7 +121,7 @@ Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/pl
 ./scripts/plot.py ./datasets/389141713*
 ```
 
-### Fetch live accounts
+### Fetch current accounts
 
 ##### Locally sync the current (live) accounts for all supported Prop AMMs.
 
@@ -131,6 +133,20 @@ Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/pl
 
 ```
 ./target/release/pmm-sim fetch-accounts --pmms=humidifi,solfi-v2
+```
+
+### Fetch current programs
+
+##### Locally sync the current (live) programs for all supported Prop AMMs.
+
+```
+./target/release/pmm-sim fetch-programs
+```
+
+##### Locally sync the current (live) programs for BisonFi and Tessera.
+
+```
+./target/release/pmm-sim fetch-programs --pmms=bisonfi,tessera
 ```
 
 ---
@@ -156,8 +172,9 @@ Usage: pmm-sim <COMMAND>
 Commands:
   single          Run a single swap route across one or more Prop AMMs with specified weights.
   multi           Execute multiple swap routes across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
-  fetch-accounts  Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).
   benchmark       Benchmark swaps for any one of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and step size
+  fetch-accounts  Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).
+  fetch-programs  Fetch programs from the specified Pmms via RPC and save them locally (presumably for later usage).
   help            Print this message or the help of the given subcommand(s)
 
 Options:
