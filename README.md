@@ -39,7 +39,7 @@ duckdb -csv \
 
 ## Examples
 
-Build the project:
+First build the project
 
 ```
 cargo build --release
@@ -56,7 +56,7 @@ cargo build --release
 ##### Swap 69K USDC for WSOL using HumidiFi and BisonFi, in one route, split 25%,75% accordingly.
 
 ```
-./target/release/pmm-sim single --amount-in=69000 --pmms=humidifi,bisonfi --weights=25,75 --src-token=WSOL --dst-token=USDC
+./target/release/pmm-sim single --amount-in=69000 --pmms=humidifi,bisonfi --weights=25,75 --src-token=USDC --dst-token=WSOL
 ```
 
 ##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM.

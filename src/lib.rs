@@ -3,7 +3,7 @@
 //! Simulate and/or Benchmark swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
-#![deny(unused)]
+//#![deny(unused)]
 
 use std::{
     collections::{HashMap, HashSet},
@@ -263,6 +263,15 @@ pub struct CommonArgs {
         help = "Fetch accounts at runtime (use --jit-accounts=false for loading the local ones instead)"
     )]
     pub jit_accounts: bool,
+
+    #[arg(
+        long,
+        env = "JIT_PROGRAMS",
+        action = clap::ArgAction::Set,
+        default_value_t = true,
+        help = "Fetch programs at runtime (use --jit-programs=false for loading the local ones instead)"
+    )]
+    pub jit_programs: bool,
 
     #[arg(long, env = "SRC_TOKEN", default_value = "wsol", help = "Source token: wsol, usdc, or usdt")]
     pub src_token: Token,
@@ -575,22 +584,58 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         get_associated_token_address(&self.wallet.pubkey(), mint)
     }
 
+    /// The router program is always loaded, plus any unique PMM programs from the provided list.
+    pub fn get_and_load_programs(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<&mut Self> {
+        let pmms: Vec<Dex> = pmms.iter().copied().collect::<HashSet<_>>().into_iter().collect(); // rm duplicates
+        self.load_program_router()?; // mandatory load
+
+        match jit {
+            true => {
+                let rpc_client = client.expect("RPC client is required for JIT program loading");
+                self.jit_programs(&pmms, rpc_client)?;
+            }
+            false => {
+                self.static_programs(&pmms)?;
+            }
+        }
+
+        Ok(self)
+    }
+
     /// Loads the router program and all required PMM programs into the SVM.
     ///
     /// Programs are loaded from `.so` files in the configured `programs_path` directory.
-    /// The router program is always loaded, plus any unique PMM programs from the provided list.
-    pub fn load_programs(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
-        // mandatory load
-        self.load_program_router()?;
-
-        let pmms: HashSet<_> = pmms.iter().collect();
+    pub fn static_programs(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
         pmms.iter().try_for_each(|pmm| {
             let program_id = pmm.program_id();
 
             self.svm.add_program_from_file(Pubkey::new_from_array(program_id.to_bytes()), format!("{}/{}.so", self.programs_path, pmm))
         })?;
 
-        info!("loaded {pmms:?} program(s)");
+        Ok(self)
+    }
+
+    /// Loads the Prop AMM programs by fetching them on-the-go.
+    /// The implementation considers only upgradeable programs.
+    pub fn jit_programs(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
+        pmms.iter().try_for_each(|pmm| -> eyre::Result<()> {
+            let program_id = Pubkey::new_from_array(pmm.program_id().to_bytes());
+            let acc = client.get_account(&program_id)?;
+            debug!(?pmm, ?program_id, ?acc);
+
+            // upgradeable programs: 4-byte tag + 32-byte programdata address
+            // https://github.com/solana-labs/solana/blob/master/sdk/program/src/bpf_loader_upgradeable.rs#L70-L73
+            let downstream_pubkey = Pubkey::new_from_array(acc.data[4..36].try_into()?);
+            let downstream_acc = client.get_account(&downstream_pubkey)?;
+            debug!(?pmm, ?downstream_pubkey, data_len = downstream_acc.data.len());
+
+            // strip 45-byte programdata header (tag + slot + upgrade authority)
+            // i.e https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861C66-L1862
+            let elf_bytes = &downstream_acc.data[45..];
+            self.svm.add_program(program_id, elf_bytes)?;
+
+            Ok(())
+        })?;
 
         Ok(self)
     }
@@ -604,7 +649,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// Sets multiple accounts in the SVM state.
-    pub fn load_accounts(&mut self, accs: &[(Pubkey, Account)]) -> eyre::Result<&mut Self> {
+    pub fn set_accounts(&mut self, accs: &[(Pubkey, Account)]) -> eyre::Result<&mut Self> {
         accs.iter().try_for_each(|(pubkey, acc)| self.svm.set_account(*pubkey, acc.clone()))?;
 
         Ok(self)
@@ -629,7 +674,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
         let (slot, accs_map) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs).map(|_| ()))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.set_accounts(accs).map(|_| ()))?;
 
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);
@@ -639,9 +684,9 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 
     /// Loads PMM accounts from disk cache and warps to the cached slot.
     pub fn static_accounts(&mut self, pmms: &[Dex]) -> eyre::Result<&mut Self> {
-        let (slot, accs_map) = Misc::read_accounts_disk(pmms, &self.accounts_path.to_string())?;
+        let (slot, accs_map) = Misc::read_accounts_from_disk(pmms, &self.accounts_path.to_string())?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.load_accounts(accs).map(|_| ()))?;
+        accs_map.iter().try_for_each(|(_, accs)| self.set_accounts(accs).map(|_| ()))?;
 
         if let Some(s) = slot {
             self.svm.warp_to_slot(s);
@@ -658,10 +703,10 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         spl_token::state::Account::unpack(&acc.data).map(|a| a.amount).unwrap_or(0)
     }
 
-    pub fn token_balance_norm(&self, mint: &Pubkey, decimals: u8) -> f64 {
+    pub fn token_balance_norm(&self, mint: &Pubkey, dec: u8) -> f64 {
         let balance = self.token_balance(mint);
 
-        balance as f64 / 10_f64.powi(decimals as i32)
+        Misc::to_human(balance, dec)
     }
 
     pub fn latest_blockhash(&self) -> solana_sdk::hash::Hash {
@@ -954,7 +999,7 @@ impl Misc {
     ///
     /// Searches the `accounts_path` directory for JSON files matching each DEX's prefix
     /// (e.g., `humidifi_*.json`) and deserialises them into account data.
-    pub fn read_accounts_disk(pmms: &[Dex], accounts_path: &str) -> eyre::Result<(Option<u64>, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
+    pub fn read_accounts_from_disk(pmms: &[Dex], accounts_path: &str) -> eyre::Result<(Option<u64>, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
         let pmms: HashSet<_> = pmms.iter().collect();
         let mut res = HashMap::new();
         let mut all_slots: Vec<u64> = vec![];
@@ -1124,6 +1169,10 @@ impl Misc {
         Ok((slot, pubkey, Account { lamports, data, owner, executable, rent_epoch }))
     }
 
+    //pub fn fetch_programs(pmms: &[Dex], client: &RpcClient) {
+    //    let mut programs = vec![];
+    //}
+
     /// Custom serde deserializer for `Pubkey` from a base58-encoded string.
     ///
     /// Used with `#[serde(deserialize_with = "Misc::deserialize_pubkey")]` attribute
@@ -1238,17 +1287,17 @@ impl Benchmark {
     }
 }
 
-pub struct Run {
+pub struct App {
     args: CliArgs,
     cfg: PMMCfg,
 }
 
-impl Run {
+impl App {
     pub fn new(args: CliArgs, cfg: PMMCfg) -> Self {
         Self { args, cfg }
     }
 
-    pub fn run(&self) -> eyre::Result<()> {
+    pub fn start(&self) -> eyre::Result<()> {
         match &self.args.command {
             Command::FetchAccounts { .. } => self.fetch_accounts(),
             Command::Benchmark { .. } => self.benchmark(),
@@ -1279,7 +1328,7 @@ impl Run {
     pub fn benchmark(&self) -> eyre::Result<()> {
         let Command::Benchmark { common, datasets_path, pmms, range } = &self.args.command else { unreachable!() };
 
-        let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
+        let rpc_client = Arc::new(RpcClient::new(common.http_url.expose_secret().to_string()));
         let (src_mint, src_dec, src_name) = (common.src_token.get_addr(), common.src_token.get_decimals(), common.src_token.to_string());
         let (dst_mint, dst_dec, dst_name) = (common.dst_token.get_addr(), common.dst_token.get_decimals(), common.dst_token.to_string());
         let mints = vec![(src_mint, src_dec), (dst_mint, dst_dec)];
@@ -1288,10 +1337,10 @@ impl Run {
         let multi = MultiProgress::new();
 
         let (slot, accs_map) = if common.jit_accounts {
-            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
+            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client.clone(), &self.cfg)?;
             (Some(s), m)
         } else {
-            Misc::read_accounts_disk(pmms, &common.accounts_path)?
+            Misc::read_accounts_from_disk(pmms, &common.accounts_path)?
         };
 
         thread::scope(|s| {
@@ -1300,6 +1349,7 @@ impl Run {
                 .map(|pmm| {
                     let (cfg, multi, mints) = (&self.cfg, &multi, &mints);
                     let (src_name, dst_name) = (&src_name, &dst_name);
+                    let rpc_client = rpc_client.clone();
                     let pmm_accs = accs_map.get(pmm).cloned().unwrap_or_default();
                     let benchmark = benchmark.clone();
 
@@ -1308,7 +1358,11 @@ impl Run {
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.load_programs(&[*pmm])?.setup_wallet(&src_mint, benchmark.range_end(), consts::AIRDROP_AMOUNT)?;
+                            env.get_and_load_programs(&[*pmm], common.jit_programs, Some(&rpc_client))?.setup_wallet(
+                                &src_mint,
+                                benchmark.range_end(),
+                                consts::AIRDROP_AMOUNT,
+                            )?;
 
                             let (src_ata, dst_ata) = (env.wallet_ata(&src_mint), env.wallet_ata(&dst_mint));
                             Ok((env, src_ata, dst_ata))
@@ -1328,7 +1382,7 @@ impl Run {
 
                         benchmark.range_iter().try_for_each(|amount_in| -> eyre::Result<()> {
                             env.reset_wallet(&src_mint, amount_in)?;
-                            env.load_accounts(&pmm_accs)?;
+                            env.set_accounts(&pmm_accs)?;
 
                             let mut swap_builder = SwapBuilder::new()
                                 .payer(env.wallet_pubkey())
@@ -1444,11 +1498,9 @@ impl Run {
         let amount_in_sum: u64 = amount_in.iter().sum();
 
         let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
-        env.load_programs(&flat_pmms)?.get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?.setup_wallet(
-            &src_mint,
-            amount_in_sum,
-            consts::AIRDROP_AMOUNT,
-        )?;
+        env.get_and_load_programs(&flat_pmms, common.jit_programs, Some(&rpc_client))?
+            .get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?
+            .setup_wallet(&src_mint, amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
         let (src_ata, src_before) = (env.wallet_ata(&src_mint), env.token_balance_norm(&src_mint, src_dec));
@@ -1799,7 +1851,7 @@ mod tests {
             let account =
                 Account { lamports: 1_000_000, data: vec![1, 2, 3, 4], owner: Pubkey::new_unique(), executable: false, rent_epoch: 0 };
 
-            env.load_accounts(&vec![(pubkey, account.clone())]).unwrap();
+            env.set_accounts(&vec![(pubkey, account.clone())]).unwrap();
 
             let loaded = env.svm.get_account(&pubkey).unwrap();
             assert_eq!(loaded.lamports, account.lamports);
