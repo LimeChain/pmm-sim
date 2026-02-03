@@ -12,7 +12,7 @@ Supported Prop AMMs:
 - [x] GoonFi
 - [x] BisonFi
 
-The swaps can be done either with the local static accounts/programs that can be found at [cfg/accounts](./cfg/accounts) and [cfg/programs](./cfg/programs) respectively, or with the current live accounts/programs (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts/programs.
+The swaps can be done either with the local static accounts/programs that can be found at [cfg/accounts](./cfg/accounts)/[cfg/programs](./cfg/programs) respectively, or with the current live accounts/programs (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts/programs.
 
 The markets for each Prop AMM are specified in [setup.toml](./setup.toml).
 
@@ -20,8 +20,9 @@ Possible modes of execution include:
 
 - **single** - Run a single swap route across one or more Prop AMMs with specified weights.
 - **multi** - Execute swaps across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
-- **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
 - **benchmark** - Benchmark swaps for any of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and range size. Benchmark data can be visualised with [plot.py](./scripts/plot.py).
+- **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
+- **fetch-programs** - Fetch programs for specified PMMs via RPC and save them locally (presumably for later usage).
 
 Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
