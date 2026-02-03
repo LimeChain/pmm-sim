@@ -12,7 +12,7 @@ Supported Prop AMMs:
 - [x] GoonFi
 - [x] BisonFi
 
-The swaps can be done either with the local static accounts/programs that can be found at [cfg/accounts](./cfg/accounts)/[cfg/programs](./cfg/programs) respectively, or with the current live accounts/programs (by fetching them on-the-go). By default all swaps & benchmark simulations are done with live accounts/programs.
+The swaps can be done either with the local static accounts/programs that can be found at [cfg/accounts](./cfg/accounts)/[cfg/programs](./cfg/programs) respectively, or with the current live ones by fetching them on-the-go. By default all swaps & benchmark simulations are done with live accounts/programs.
 
 The markets for each Prop AMM are specified in [setup.toml](./setup.toml).
 
