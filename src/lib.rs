@@ -36,7 +36,7 @@ use spl_associated_token_account::get_associated_token_address;
 use tracing::{debug, info, warn};
 
 /// Constants used throughout the simulation environment.
-/// Holds the CFG file paths, swappable token accounts and more;
+/// Holds the CFG file paths, templates, limits and more;
 pub mod consts {
     pub const ROUTER: &str = "magnus-router";
     pub const SETUP_PATH: &str = "./setup.toml";
@@ -191,7 +191,7 @@ define_dex_configs! {
 #[command(version, about = "Simulation environment for Solana's Proprietary AMMs.\nSimulate swaps and Benchmark performance across *any* of the major Solana Prop AMMs.", long_about = None)]
 pub struct CliArgs {
     #[command(subcommand)]
-    pub command: Command,
+    pub cmd: Cmd,
 }
 
 impl CliArgs {
@@ -284,7 +284,7 @@ pub struct CommonArgs {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Command {
+pub enum Cmd {
     #[command(
         about = "Run a single swap route across one or more Prop AMMs with specified weights.",
         after_help = "Examples:
@@ -441,23 +441,23 @@ pub enum Command {
     },
 }
 
-impl Command {
+impl Cmd {
     pub fn setup_path(&self) -> &str {
         match self {
-            Command::FetchAccounts { setup_path, .. } | Command::FetchPrograms { setup_path, .. } => setup_path,
-            Command::Benchmark { common, .. } => &common.setup_path,
-            Command::Single { common, .. } => &common.setup_path,
-            Command::Multi { common, .. } => &common.setup_path,
+            Cmd::FetchAccounts { setup_path, .. } | Cmd::FetchPrograms { setup_path, .. } => setup_path,
+            Cmd::Benchmark { common, .. } => &common.setup_path,
+            Cmd::Single { common, .. } => &common.setup_path,
+            Cmd::Multi { common, .. } => &common.setup_path,
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
-            Command::FetchAccounts { .. } => "FetchAccounts",
-            Command::FetchPrograms { .. } => "FetchPrograms",
-            Command::Benchmark { .. } => "Benchmark",
-            Command::Single { .. } => "SingleRouteSwaps",
-            Command::Multi { .. } => "MultiRouteSwaps",
+            Cmd::FetchAccounts { .. } => "FetchAccounts",
+            Cmd::FetchPrograms { .. } => "FetchPrograms",
+            Cmd::Benchmark { .. } => "Benchmark",
+            Cmd::Single { .. } => "SingleRouteSwaps",
+            Cmd::Multi { .. } => "MultiRouteSwaps",
         }
     }
 }
@@ -493,6 +493,7 @@ pub enum Aggregator {
     Jupiter,
     #[value(name = "okxlabs")]
     OkxLabs,
+    Titan,
 }
 
 impl Aggregator {
@@ -501,6 +502,7 @@ impl Aggregator {
             Aggregator::Jupiter => pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
             Aggregator::DFlow => pubkey!("DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH"),
             Aggregator::OkxLabs => pubkey!("6m2CDdhRgxpH4WjvdzxAYbGxwdGUz5MziiL5jek2kBma"),
+            Aggregator::Titan => pubkey!("T1TANpTeScyeqVzzgNViGDNrkQ6qHz9KrSBS4aNXvGT"),
         }
     }
 }
@@ -511,6 +513,7 @@ impl std::fmt::Display for Aggregator {
             Aggregator::DFlow => write!(f, "dflow"),
             Aggregator::Jupiter => write!(f, "jupiter"),
             Aggregator::OkxLabs => write!(f, "okxlabs"),
+            Aggregator::Titan => write!(f, "titan"),
         }
     }
 }
@@ -1368,16 +1371,16 @@ impl App {
     }
 
     pub fn start(&self) -> eyre::Result<()> {
-        match &self.args.command {
-            Command::FetchAccounts { .. } => self.fetch_accounts(),
-            Command::FetchPrograms { .. } => self.fetch_programs(),
-            Command::Benchmark { .. } => self.benchmark(),
-            Command::Single { .. } | Command::Multi { .. } => self.simulate(),
+        match &self.args.cmd {
+            Cmd::FetchAccounts { .. } => self.fetch_accounts(),
+            Cmd::FetchPrograms { .. } => self.fetch_programs(),
+            Cmd::Benchmark { .. } => self.benchmark(),
+            Cmd::Single { .. } | Cmd::Multi { .. } => self.simulate(),
         }
     }
 
     pub fn fetch_accounts(&self) -> eyre::Result<()> {
-        let Command::FetchAccounts { http_url, accounts_path, pmms, .. } = &self.args.command else { unreachable!() };
+        let Cmd::FetchAccounts { http_url, accounts_path, pmms, .. } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
         let (slot, fetched) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
@@ -1397,7 +1400,7 @@ impl App {
     }
 
     pub fn fetch_programs(&self) -> eyre::Result<()> {
-        let Command::FetchPrograms { http_url, programs_path, pmms, .. } = &self.args.command else { unreachable!() };
+        let Cmd::FetchPrograms { http_url, programs_path, pmms, .. } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
         let programs = Misc::fetch_programs(pmms, &rpc_client)?;
@@ -1419,7 +1422,7 @@ impl App {
     }
 
     pub fn benchmark(&self) -> eyre::Result<()> {
-        let Command::Benchmark { common, datasets_path, pmms, range, spoof } = &self.args.command else { unreachable!() };
+        let Cmd::Benchmark { common, datasets_path, pmms, range, spoof } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
@@ -1567,11 +1570,11 @@ impl App {
     }
 
     pub fn simulate(&self) -> eyre::Result<()> {
-        let (common, amount_in, pmms, weights, spoof) = match &self.args.command {
-            Command::Single { common, amount_in, pmms, weights, spoof } => {
+        let (common, amount_in, pmms, weights, spoof) = match &self.args.cmd {
+            Cmd::Single { common, amount_in, pmms, weights, spoof } => {
                 (common, vec![*amount_in], vec![pmms.clone()], vec![weights.clone()], spoof)
             }
-            Command::Multi { common, amount_in, pmms, weights, spoof } => {
+            Cmd::Multi { common, amount_in, pmms, weights, spoof } => {
                 let pmms = CliArgs::parse_nested_pmms(pmms).expect("invalid format for nested dexes");
                 let weights = CliArgs::parse_nested_weights(weights).expect("invalid format for nested weights");
 

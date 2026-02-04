@@ -34,7 +34,7 @@ _Figure 2: Compute unit usage_
 
 ---
 
-Some Prop AMMs tend to provide different — preferential — rates for whitelisted set of addresses. Depending on who's the source of CPI, you might get different quotes - You can optionally simulate swaps / benchmarks spoofed as one of: Jupiter, OkxLabs or DFlow.
+Some Prop AMMs tend to provide different — preferential — rates for whitelisted set of addresses. Depending on who's the source of CPI, you might get different quotes - You can optionally simulate swaps / benchmarks spoofed as one of: Jupiter, OkxLabs, DFlow or Titan.
 
 ![solfi_v2_spoof_rates](./assets/397549319_solfiv2-spoof-rates.png)
 _Figure 3: SolFiV2's rates depending on the source of CPI_
@@ -66,7 +66,7 @@ cargo build --release
   --src-token=USDC --dst-token=WSOL
 ```
 
-##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM, simulated as DFlow
+##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM, spoofed as DFlow.
 
 ```
 ./target/release/pmm-sim single --spoof=dflow --amount-in=375 --pmms=tessera,solfi-v2 \

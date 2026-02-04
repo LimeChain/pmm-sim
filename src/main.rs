@@ -15,9 +15,9 @@ fn main() -> eyre::Result<()> {
         .init();
 
     let args = CliArgs::parse();
-    let cfg = PMMCfg::load(args.command.setup_path())?;
+    let cfg = PMMCfg::load(args.cmd.setup_path())?;
 
-    info!(command = args.command.name(), ?args);
+    info!(cmd = args.cmd.name(), ?args);
     debug!(?cfg);
 
     App::new(args, cfg).start()
