@@ -22,15 +22,15 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use litesvm::{LiteSVM, types::TransactionMetadata};
 use magnus_router_client::instructions::SwapBuilder;
 use magnus_shared::{Dex, Route};
-use polars::prelude::*;
+use polars::prelude::{Column, DataFrame, ParquetWriter};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
 use solana_compute_budget::compute_budget::ComputeBudget;
 use solana_sdk::{
-    account::Account, message::AccountMeta, program_pack::Pack, pubkey::Pubkey, rent::Rent, signature::Keypair, signer::Signer, sysvar,
-    transaction::Transaction,
+    account::Account, message::AccountMeta, program_pack::Pack, pubkey, pubkey::Pubkey, rent::Rent, signature::Keypair, signer::Signer,
+    sysvar, transaction::Transaction,
 };
 use spl_associated_token_account::get_associated_token_address;
 use tracing::{debug, info, warn};
@@ -197,7 +197,7 @@ pub struct CliArgs {
 impl CliArgs {
     fn parse_nested_pmms(s: &str) -> Result<Vec<Vec<Dex>>, String> {
         if let Ok(parsed) = serde_json::from_str::<Vec<Vec<String>>>(s) {
-            return parsed.into_iter().map(|group| group.into_iter().map(|s| s.parse::<Dex>()).collect::<Result<Vec<Dex>, _>>()).collect();
+            return parsed.into_iter().map(|grp| grp.into_iter().map(|s| s.parse::<Dex>()).collect::<Result<Vec<Dex>, _>>()).collect();
         }
 
         let s = s.trim();
@@ -208,9 +208,9 @@ impl CliArgs {
         let inner = &s[1..s.len() - 1];
         inner
             .split("],[")
-            .map(|group| {
-                let group = group.trim_matches('[').trim_matches(']');
-                group.split(',').map(|dex| dex.trim().parse::<Dex>()).collect::<Result<Vec<Dex>, _>>()
+            .map(|grp| {
+                let grp = grp.trim_matches('[').trim_matches(']');
+                grp.split(',').map(|dex| dex.trim().parse::<Dex>()).collect::<Result<Vec<Dex>, _>>()
             })
             .collect()
     }
@@ -289,19 +289,22 @@ pub enum Command {
         about = "Run a single swap route across one or more Prop AMMs with specified weights.",
         after_help = "Examples:
   pmm-sim single --pmms=humidifi --weights=100 --amount-in=100 --src-token=WSOL --dst-token=USDC
-  pmm-sim single --pmms=humidifi,solfi-v2 --weights=50,50 --amount-in=150000 --src-token=USDC --dst-token=WSOL
+  pmm-sim single --spoof=okxlabs --pmms=humidifi,solfi-v2 --weights=50,50 --amount-in=150000 --src-token=USDC --dst-token=WSOL
   pmm-sim single --amount-in=10000 --pmms=solfi-v2,tessera --weights=30,70
-  pmm-sim single --amount-in=10000 --pmms=obric-v2 --weights=100 --src-token=USDC --dst-token=USDT"
+  pmm-sim single --spoof=jupiter --amount-in=10000 --pmms=obric-v2 --weights=100 --src-token=USDC --dst-token=USDT"
     )]
     Single {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade")]
-        amount_in: f64,
-
         #[arg(long, value_delimiter = ',', default_value = "humidifi,solfi-v2", help = "Comma-separated list of Prop AMMs")]
         pmms: Vec<Dex>,
+
+        #[arg(long, env = "SPOOF", help = "Spoof as an aggregator for CPI calls")]
+        spoof: Option<Aggregator>,
+
+        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade")]
+        amount_in: f64,
 
         #[arg(long, value_delimiter = ',', default_value = "50,50", help = "Comma-separated weights")]
         weights: Vec<u8>,
@@ -331,6 +334,12 @@ pub enum Command {
         #[command(flatten)]
         common: CommonArgs,
 
+        #[arg(long, default_value = "[[humidifi,solfi-v2],[solfi-v2]]", help = "JSON nested routes, e.g. '[[dex1,dex2],[dex3]]'")]
+        pmms: String,
+
+        #[arg(long, env = "SPOOF", help = "Spoof as an aggregator for CPI calls")]
+        spoof: Option<Aggregator>,
+
         #[arg(
             long,
             env = "AMOUNT_IN",
@@ -340,9 +349,6 @@ pub enum Command {
             help = "Comma-separated amounts for each route, e.g. --amount-in=3,50"
         )]
         amount_in: Vec<f64>,
-
-        #[arg(long, default_value = "[[humidifi,solfi-v2],[solfi-v2]]", help = "JSON nested routes, e.g. '[[dex1,dex2],[dex3]]'")]
-        pmms: String,
 
         #[arg(
             long,
@@ -367,11 +373,14 @@ pub enum Command {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(long, env = "DATASETS_PATH", default_value = consts::DATASETS_PATH, help = "Directory to dump the benchmark parquet files into")]
-        datasets_path: String,
-
         #[arg(long, env = "PROP_AMMS", value_delimiter = ',', default_value = "humidifi", help = "The Prop AMMs to benchmark")]
         pmms: Vec<Dex>,
+
+        #[arg(long, env = "SPOOF", help = "Spoof as an aggregator for CPI calls")]
+        spoof: Option<Aggregator>,
+
+        #[arg(long, env = "DATASETS_PATH", default_value = consts::DATASETS_PATH, help = "Directory to dump the benchmark parquet files into")]
+        datasets_path: String,
 
         #[arg(long, env = "RANGE", default_value = "1.0,100.0,1.0", value_parser = CliArgs::parse_range, help = "Comma-separated step parameters: start, end, step")]
         range: [f64; 3],
@@ -473,6 +482,36 @@ impl Tokens {
 
     pub fn get(&self, symbol: &str) -> eyre::Result<&Token> {
         self.0.get(&symbol.to_uppercase()).ok_or_else(|| eyre::eyre!("unknown token '{symbol}' - verify the token exists at TOKEN_PATH"))
+    }
+}
+
+/// The Aggregators we can spoof as, as a source of CPI calls
+#[derive(Debug, Copy, Clone, clap::ValueEnum)]
+pub enum Aggregator {
+    #[value(name = "dflow")]
+    DFlow,
+    Jupiter,
+    #[value(name = "okxlabs")]
+    OkxLabs,
+}
+
+impl Aggregator {
+    pub fn program_id(&self) -> Pubkey {
+        match self {
+            Aggregator::Jupiter => pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"),
+            Aggregator::DFlow => pubkey!("DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH"),
+            Aggregator::OkxLabs => pubkey!("6m2CDdhRgxpH4WjvdzxAYbGxwdGUz5MziiL5jek2kBma"),
+        }
+    }
+}
+
+impl std::fmt::Display for Aggregator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Aggregator::DFlow => write!(f, "dflow"),
+            Aggregator::Jupiter => write!(f, "jupiter"),
+            Aggregator::OkxLabs => write!(f, "okxlabs"),
+        }
     }
 }
 
@@ -582,9 +621,15 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// The router program is always loaded, plus any unique PMM programs from the provided list.
-    pub fn get_and_load_programs(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<&mut Self> {
+    pub fn get_and_load_programs(
+        &mut self,
+        pmms: &[Dex],
+        jit: bool,
+        spoof: Option<Aggregator>,
+        client: Option<&RpcClient>,
+    ) -> eyre::Result<&mut Self> {
         let pmms: Vec<Dex> = pmms.iter().copied().collect::<HashSet<_>>().into_iter().collect(); // rm duplicates
-        self.load_program_router()?; // mandatory load
+        self.load_program_router(spoof)?; // mandatory load
 
         match jit {
             true => {
@@ -618,9 +663,19 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// Loads the router program into the SVM.
-    pub fn load_program_router(&mut self) -> eyre::Result<&mut Self> {
-        self.svm
-            .add_program_from_file(magnus_router_client::programs::ROUTER_ID, format!("{}/{}.so", self.programs_path, consts::ROUTER))?;
+    pub fn load_program_router(&mut self, spoof: Option<Aggregator>) -> eyre::Result<&mut Self> {
+        match spoof {
+            None => {
+                self.svm.add_program_from_file(
+                    magnus_router_client::programs::ROUTER_ID,
+                    format!("{}/{}.so", self.programs_path, consts::ROUTER),
+                )?;
+            }
+            Some(aggr) => {
+                let addr = aggr.program_id();
+                self.svm.add_program_from_file(addr, format!("{}/{}-spoof-{aggr}.so", self.programs_path, consts::ROUTER))?;
+            }
+        }
 
         Ok(self)
     }
@@ -972,6 +1027,35 @@ impl Misc {
         }
     }
 
+    /// Persists an account to disk in JSON for later reuse.
+    pub fn save_account_to_disk(accounts_path: &str, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
+        let filename = format!("{}_{}.json", dex, pubkey);
+        let data_dir = Path::new(&accounts_path);
+
+        if !data_dir.exists() {
+            fs::create_dir_all(data_dir)?;
+        }
+
+        let file_path = data_dir.join(filename);
+
+        let value = serde_json::json!({
+            "pubkey": pubkey.to_string(),
+            "slot": slot,
+            "account": {
+                "lamports": account.lamports,
+                "data": [general_purpose::STANDARD.encode(&account.data), "base64"],
+                "owner": account.owner.to_string(),
+                "executable": account.executable,
+                "rentEpoch": account.rent_epoch,
+            }
+        });
+
+        let mut file = File::create(file_path)?;
+        file.write_all(serde_json::to_string_pretty(&value)?.as_bytes())?;
+
+        Ok(())
+    }
+
     /// Reads previously saved PMM accounts from disk.
     ///
     /// Searches the `accounts_path` directory for JSON files matching each DEX's prefix
@@ -1030,35 +1114,6 @@ impl Misc {
         };
 
         Ok((slot, res))
-    }
-
-    /// Persists an account to disk in JSON for later reuse.
-    pub fn save_account_to_disk(accounts_path: &str, dex: &Dex, pubkey: &Pubkey, account: &Account, slot: u64) -> eyre::Result<()> {
-        let filename = format!("{}_{}.json", dex, pubkey);
-        let data_dir = Path::new(&accounts_path);
-
-        if !data_dir.exists() {
-            fs::create_dir_all(data_dir)?;
-        }
-
-        let file_path = data_dir.join(filename);
-
-        let value = serde_json::json!({
-            "pubkey": pubkey.to_string(),
-            "slot": slot,
-            "account": {
-                "lamports": account.lamports,
-                "data": [general_purpose::STANDARD.encode(&account.data), "base64"],
-                "owner": account.owner.to_string(),
-                "executable": account.executable,
-                "rentEpoch": account.rent_epoch,
-            }
-        });
-
-        let mut file = File::create(file_path)?;
-        file.write_all(serde_json::to_string_pretty(&value)?.as_bytes())?;
-
-        Ok(())
     }
 
     /// Fetches PMM accounts from an RPC node in a single atomic request.
@@ -1163,7 +1218,7 @@ impl Misc {
             let programdata_acc = client.get_account(&programdata_pubkey)?;
 
             // strip 45-byte programdata header (tag + slot + upgrade authority)
-            // https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861C66-L1862
+            // https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861-L1862
             let elf_bytes = programdata_acc.data[45..].to_vec();
             programs.push((*pmm, program_id, elf_bytes));
 
@@ -1364,7 +1419,7 @@ impl App {
     }
 
     pub fn benchmark(&self) -> eyre::Result<()> {
-        let Command::Benchmark { common, datasets_path, pmms, range } = &self.args.command else { unreachable!() };
+        let Command::Benchmark { common, datasets_path, pmms, range, spoof } = &self.args.command else { unreachable!() };
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
@@ -1396,7 +1451,7 @@ impl App {
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.get_and_load_programs(&[*pmm], common.jit_programs, Some(rpc_client))?.setup_wallet(
+                            env.get_and_load_programs(&[*pmm], common.jit_programs, *spoof, Some(rpc_client))?.setup_wallet(
                                 &src_token.addr,
                                 benchmark.range_end(),
                                 consts::AIRDROP_AMOUNT,
@@ -1436,7 +1491,7 @@ impl App {
                                 .order_id(Misc::gen_order_id())
                                 .clone();
 
-                            let swap_ix = ConstructSwap {
+                            let mut swap_ix = ConstructSwap {
                                 cfg: cfg.clone(),
                                 builder: &mut swap_builder,
                                 payer: env.wallet_pubkey(),
@@ -1447,6 +1502,10 @@ impl App {
                             }
                             .attach_pmm_accs(pmm)
                             .instruction();
+
+                            if let Some(aggr) = spoof {
+                                swap_ix.program_id = aggr.program_id();
+                            }
 
                             let tx = Transaction::new_signed_with_payer(
                                 &[swap_ix],
@@ -1508,13 +1567,15 @@ impl App {
     }
 
     pub fn simulate(&self) -> eyre::Result<()> {
-        let (common, amount_in, pmms, weights) = match &self.args.command {
-            Command::Single { common, amount_in, pmms, weights } => (common, vec![*amount_in], vec![pmms.clone()], vec![weights.clone()]),
-            Command::Multi { common, amount_in, pmms, weights } => {
+        let (common, amount_in, pmms, weights, spoof) = match &self.args.command {
+            Command::Single { common, amount_in, pmms, weights, spoof } => {
+                (common, vec![*amount_in], vec![pmms.clone()], vec![weights.clone()], spoof)
+            }
+            Command::Multi { common, amount_in, pmms, weights, spoof } => {
                 let pmms = CliArgs::parse_nested_pmms(pmms).expect("invalid format for nested dexes");
                 let weights = CliArgs::parse_nested_weights(weights).expect("invalid format for nested weights");
 
-                (common, amount_in.clone(), pmms, weights)
+                (common, amount_in.clone(), pmms, weights, spoof)
             }
             _ => unreachable!(),
         };
@@ -1536,7 +1597,7 @@ impl App {
         let amount_in_sum: u64 = amount_in.iter().sum();
 
         let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
-        env.get_and_load_programs(&flat_pmms, common.jit_programs, Some(&rpc_client))?
+        env.get_and_load_programs(&flat_pmms, common.jit_programs, *spoof, Some(&rpc_client))?
             .get_and_load_accounts(&flat_pmms, common.jit_accounts, Some(&rpc_client))?
             .setup_wallet(&src_token.addr, amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
@@ -1549,7 +1610,7 @@ impl App {
         let routes: Vec<Vec<magnus_router_client::types::Route>> = pmms
             .iter()
             .zip(weights.iter())
-            .map(|(dex_grp, weight_group)| vec![Route { dexes: dex_grp.clone(), weights: weight_group.clone() }.into()])
+            .map(|(dex_grp, weight_grp)| vec![Route { dexes: dex_grp.clone(), weights: weight_grp.clone() }.into()])
             .collect();
 
         let mut swap_builder = SwapBuilder::new()
@@ -1566,7 +1627,7 @@ impl App {
             .order_id(Misc::gen_order_id())
             .clone();
 
-        let swap_ix = ConstructSwap {
+        let mut swap_ix = ConstructSwap {
             cfg: self.cfg.clone(),
             builder: &mut swap_builder,
             payer: env.wallet_pubkey(),
@@ -1577,6 +1638,10 @@ impl App {
         }
         .attach_pmms_accs(&flat_pmms)
         .instruction();
+
+        if let Some(aggr) = spoof {
+            swap_ix.program_id = aggr.program_id();
+        }
 
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");
@@ -1608,6 +1673,7 @@ mod tests {
 
     mod cli {
         use super::*;
+
         #[test]
         fn test_parse_nested_pmms_json_single() {
             let input = r#"[["humidifi"]]"#;
