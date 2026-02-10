@@ -103,16 +103,17 @@ cargo build --release
 ```
 RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 \
   --pmms="[[humidifi,solfi-v2],[goonfi]]" --weights="[[25,75],[100]]" \
-  --src-token=USDC --dst-token=WSOL --jit-accounts=true
+  --src-token=USDC --dst-token=WSOL --jit-accounts=false --jit-programs=false
 ```
 
 ### Benchmark swaps
 
-##### Benchmark swaps on HumidiFi,Tessera,SolFiV2 and GoonFi, from 1 to 4000 WSOL to USDC, in increments of 1 WSOL. The results are saved at [./datasets](./datasets).
+##### Benchmark swaps on HumidiFi,Tessera,SolFiV2 and GoonFi, from 1 to 4000 WSOL to USDC, in increments of 1 WSOL, using the accounts & programs from [./cfg](./cfg). The results are saved at [./datasets](./datasets).
 
 ```
 ./target/release/pmm-sim benchmark --pmms=humidifi,tessera,solfi-v2,goonfi \
-  --range=1.0,4000.0,1.0 --src-token=wsol --dst-token=usdc
+  --range=1.0,4000.0,1.0 --src-token=wsol --dst-token=usdc \
+  --jit-accounts=false --jit-programs=false
 ```
 
 ##### Benchmark swaps on Tessera and SolFiV2, from 1 to 250 WSOL, in increments of 0.01 WSOL. The results are saved at [./datasets](./datasets).
