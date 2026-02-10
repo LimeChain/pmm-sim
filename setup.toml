@@ -73,5 +73,5 @@ y_price_feed = "J4HJYz4p7TRP96WVFky3vh7XryxoFehHjoRySUTeSeXw"
 # https://solscan.io/account/51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ
 [bisonfi]
 market = "51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ"
-market_base_ta = "6DMF4t6Ks8yXhG8K3rrTAeNYrqNrr1DwewHvBmH3a3FX"
-market_quote_ta = "FxGiN5NkigicwrnFshZEAUH9C13yrBALmgYxA9x8sfnQ"
+market_base_ta = "FxGiN5NkigicwrnFshZEAUH9C13yrBALmgYxA9x8sfnQ"
+market_quote_ta = "6DMF4t6Ks8yXhG8K3rrTAeNYrqNrr1DwewHvBmH3a3FX"
