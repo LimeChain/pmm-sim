@@ -14,7 +14,7 @@ Supported Prop AMMs:
 
 The swaps can be done either with the local static accounts/programs stored at [./cfg/](./cfg/) or with the current live ones by fetching them on-the-go. By default all swaps & benchmark simulations are done with real-time accounts/programs.
 
-The markets for each Prop AMM are specified in [setup.toml](./setup.toml).
+The markets for each Prop AMM are specified in [./cfg/setup.toml](./cfg/setup.toml).
 
 Possible modes of execution include:
 
@@ -184,7 +184,7 @@ Programs are by default loaded (saved) from (at) [cfg/programs](./cfg/programs).
 
 Datasets are by default loaded (saved) from (at) [datasets](./datasets). Tweaking the source/destination is possible via `--datasets-path` or `DATASETS_PATH` env variable.
 
-The supported tokens are loaded from [cfg/tokens.json](./cfg/tokens.json). Tweaking the source is possible via `--tokens-path` or `TOKENS_PATH` env variable.
+The supported tokens are defined in [cfg/setup.toml](./cfg/setup.toml) under `[[tokens]]` entries.
 
 ---
 
