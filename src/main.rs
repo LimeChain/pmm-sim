@@ -1,5 +1,5 @@
 use clap::Parser;
-use pmm_sim::{App, CliArgs, PMMCfg};
+use pmm_sim::{App, CliArgs, cfg::Cfg};
 use tracing::{debug, info};
 use tracing_subscriber::{EnvFilter, fmt::time::UtcTime};
 
@@ -15,7 +15,7 @@ fn main() -> eyre::Result<()> {
         .init();
 
     let args = CliArgs::parse();
-    let cfg = PMMCfg::load(args.cmd.setup_path())?;
+    let cfg = Cfg::load(args.cmd.setup_path())?;
 
     info!(cmd = args.cmd.name(), ?args);
     debug!(?cfg);

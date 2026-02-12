@@ -1,47 +1,67 @@
+# TODO
+# add tokens here, i.e
+# [[tokens]]
+# ..
+
 # https://solscan.io/account/FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH
-[humidifi]
+[[humidifi.swap-v1]]
 market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
 base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
 quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
-## other humidifi markets
 
 ## https://solscan.io/account/DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW
-# market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
-# base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
-# quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+[[humidifi.swap-v1]]
+market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
+base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
 
 ## https://solscan.io/account/6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ
+# [[humidifi.swap-v1]]
 # market = "6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ"
 # base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
 # quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
 
 ## https://solscan.io/account/AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX
+# [[humidifi.swap-v1]]
 # market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
 # base_ta = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
 # quote_ta = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
 
 ## https://solscan.io/account/5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9 (WSOL-USD1)
-#market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
-#base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
-#quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
+# [[humidifi.swap-v1]]
+# market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
+# base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
+# quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
+
+# -- Tessera --
+
+[tessera]
 
 # https://solscan.io/account/FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n
-[tessera]
+[[tessera.swap-v1]]
 market = "FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n"
 base_ta = "5pVN5XZB8cYBjNLFrsBCPWkCQBan5K5Mq2dWGzwPgGJV"
 quote_ta = "9t4P5wMwfFkyn92Z7hf463qYKEZf8ERVZsGBEPNp8uJx"
 global_state = "8ekCy2jHHUbW2yeNGFWYJT9Hm9FW7SvZcZK66dSZCDiF"
 
-# https://solscan.io/account/4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K
+# -- Goonfi --
+
 [goonfi]
+
+# https://solscan.io/account/4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K
+[[goonfi.swap-v1]]
 market = "4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K"
 base_ta = "pKiUC9hDXv52xqU1p3BKypV9AQjAMgfZUGRnoBsdkKm"
 quote_ta = "Gsy5Zr7Vxn5KckAbduPHHGR1qzPJ4w3GSYmcinWAkhrC"
 blacklist = "7XqYD6DEGmDXooB1E8NNRWV9pWAmm1z6WYpsfjnABTUz"
 
-# https://solscan.io/account/65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc
+# -- SolFi V2 --
+
 [solfi-v2]
+
+# https://solscan.io/account/65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc
+[[solfi-v2.swap-v1]]
 market = "65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc"
 base_ta = "CRo8DBwrmd97DJfAnvCv96tZPL5Mktf2NZy2ZnhDer1A"
 quote_ta = "GhFfLFSprPpfoRaWakPMmJTMJBHuz6C694jYwxy2dAic"
@@ -50,17 +70,24 @@ oracle = "2ny7eGyZCoeEVTkNLf5HcnJFBKkyA4p4gcrtb3b8y8ou"
 base_mint = "So11111111111111111111111111111111111111112"
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
-# https://solscan.io/account/2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi
+# -- ZeroFi --
+
 [zerofi]
+
+# https://solscan.io/account/2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi
+[[zerofi.swap-v1]]
 market = "2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi"
 vault_info_base = "7RHJ2WfexqUxy7SXfbNZRZDgZi3D9jtMAQp9VhfzpU8T"
 vault_base = "ERP5RTV6cWmoGrv7r9W2V5pbgDFSepc4j97qNnx1Jris"
 vault_info_quote = "Ef7zPqj4NuZHwaTczUTY9oRbxXrfZseUcKcqPaidCZ5W"
 vault_quote = "7wYJVD8iXmMQjND1fwi1hPr68QwruVVtirbotyJZXaVH"
 
-# ObricV2's USDT-USDC Market (the only active one)
-# https://solscan.io/account/BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG
+# -- Obric V2 --
+
 [obric-v2]
+
+# https://solscan.io/account/BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG (USDT-USDC)
+[[obric-v2.swap-v1]]
 market = "BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG"
 second_ref_oracle = "GZsNmWKbqhMYtdSkkvMdEyQF9k5mLmP7tTKYWZjcHVPE"
 third_ref_oracle = "6YawcNeZ74tRyCv4UfGydYMr7eho7vbUR6ScVffxKAb3"
@@ -70,8 +97,12 @@ ref_oracle = "J4HJYz4p7TRP96WVFky3vh7XryxoFehHjoRySUTeSeXw"
 x_price_feed = "J4HJYz4p7TRP96WVFky3vh7XryxoFehHjoRySUTeSeXw"
 y_price_feed = "J4HJYz4p7TRP96WVFky3vh7XryxoFehHjoRySUTeSeXw"
 
-# https://solscan.io/account/51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ
+# -- BisonFi --
+
 [bisonfi]
+
+# https://solscan.io/account/51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ
+[[bisonfi.swap-v1]]
 market = "51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ"
 market_base_ta = "FxGiN5NkigicwrnFshZEAUH9C13yrBALmgYxA9x8sfnQ"
 market_quote_ta = "6DMF4t6Ks8yXhG8K3rrTAeNYrqNrr1DwewHvBmH3a3FX"

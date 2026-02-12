@@ -4,6 +4,8 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err)]
 
+pub mod cfg;
+
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Debug, Display},
@@ -34,6 +36,8 @@ use solana_sdk::{
 };
 use spl_associated_token_account::get_associated_token_address;
 use tracing::{debug, info, warn};
+
+use crate::cfg::{Cfg, PmmTarget};
 
 /// Constants used throughout the simulation environment.
 /// Holds the CFG file paths, templates, limits and more;
@@ -236,8 +240,8 @@ impl CliArgs {
         Ok(parts)
     }
 
-    fn default_pmm() -> Vec<Dex> {
-        Dex::PMM.to_vec()
+    fn default_pmm() -> Vec<PmmTarget> {
+        Dex::PMM.iter().map(|d| PmmTarget { dex: *d, market_hint: None }).collect()
     }
 }
 
@@ -297,8 +301,13 @@ pub enum Cmd {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(long, value_delimiter = ',', default_value = "humidifi,solfi-v2", help = "Comma-separated list of Prop AMMs")]
-        pmms: Vec<Dex>,
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_value = "humidifi,solfi-v2",
+            help = "Comma-separated list of Prop AMMs (optionally with market hint, e.g. humidifi_Fk)"
+        )]
+        pmms: Vec<PmmTarget>,
 
         #[arg(long, env = "SPOOF", help = "Spoof as an aggregator for CPI calls")]
         spoof: Option<Aggregator>,
@@ -373,8 +382,14 @@ pub enum Cmd {
         #[command(flatten)]
         common: CommonArgs,
 
-        #[arg(long, env = "PROP_AMMS", value_delimiter = ',', default_value = "humidifi", help = "The Prop AMMs to benchmark")]
-        pmms: Vec<Dex>,
+        #[arg(
+            long,
+            env = "PROP_AMMS",
+            value_delimiter = ',',
+            default_value = "humidifi",
+            help = "The Prop AMMs to benchmark (optionally with market hint, e.g. humidifi_Fk)"
+        )]
+        pmms: Vec<PmmTarget>,
 
         #[arg(long, env = "SPOOF", help = "Spoof as an aggregator for CPI calls")]
         spoof: Option<Aggregator>,
@@ -410,7 +425,7 @@ pub enum Cmd {
             default_values_t = CliArgs::default_pmm(),
             help = "Comma-separated list of Prop AMMs to fetch accounts for"
         )]
-        pmms: Vec<Dex>,
+        pmms: Vec<PmmTarget>,
     },
 
     #[command(
@@ -437,7 +452,7 @@ pub enum Cmd {
             default_values_t = CliArgs::default_pmm(),
             help = "Comma-separated list of Prop AMMs to fetch programs for"
         )]
-        pmms: Vec<Dex>,
+        pmms: Vec<PmmTarget>,
     },
 }
 
@@ -527,7 +542,7 @@ pub struct Environment<'a, P: Into<String> + Display + Clone + Debug> {
     slot: Option<u64>,
     wallet: Keypair,
     mints: Option<&'a [(Pubkey, u8)]>,
-    cfg: PMMCfg,
+    cfg: Cfg,
 
     programs_path: P,
     accounts_path: P,
@@ -550,7 +565,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         programs_path: P,
         accounts_path: P,
         mints: Option<&[(Pubkey, u8)]>,
-        cfg: PMMCfg,
+        cfg: Cfg,
         slot: Option<u64>,
     ) -> eyre::Result<Environment<'_, P>> {
         let mut budget = ComputeBudget::new_with_defaults(false);
@@ -709,7 +724,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
         let (slot, accs_map) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
 
-        accs_map.iter().try_for_each(|(_, accs)| self.set_accounts(accs).map(|_| ()))?;
+        accs_map.iter().try_for_each(|(_, markets)| markets.iter().try_for_each(|(_, accs)| self.set_accounts(accs).map(|_| ())))?;
 
         self.svm.warp_to_slot(slot);
         self.slot = Some(slot);
@@ -784,7 +799,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
 ///
 /// The order of the remaining_accounts matters.
 pub struct ConstructSwap<'a> {
-    cfg: PMMCfg,
+    cfg: Cfg,
     builder: &'a mut SwapBuilder,
     payer: Pubkey,
     src_ta: Pubkey,
@@ -803,15 +818,15 @@ impl<'a> ConstructSwap<'a> {
     /// Each Prop AMM program expects a specific set of accounts in a precise order as
     /// "remaining accounts" on the swap instruction. This method dispatches to the
     /// appropriate PMM-specific attachment function based on the DEX type.
-    pub fn attach_pmm_accs(&mut self, pmm: &Dex) -> &mut Self {
+    pub fn attach_pmm_accs(&mut self, pmm: &Dex, market: &Pubkey) -> &mut Self {
         match pmm {
-            Dex::HumidiFi => self.attach_humidifi_accs(),
-            Dex::SolfiV2 => self.attach_solfiv2_accs(),
-            Dex::ZeroFi => self.attach_zerofi_accs(),
-            Dex::ObricV2 => self.attach_obric_v2_accs(),
-            Dex::Tessera => self.attach_tessera_accs(),
-            Dex::GoonFi => self.attach_goonfi_accs(),
-            Dex::BisonFi => self.attach_bisonfi_accs(),
+            Dex::HumidiFi => self.attach_humidifi_accs(market),
+            Dex::SolfiV2 => self.attach_solfiv2_accs(market),
+            Dex::ZeroFi => self.attach_zerofi_accs(market),
+            Dex::ObricV2 => self.attach_obric_v2_accs(market),
+            Dex::Tessera => self.attach_tessera_accs(market),
+            Dex::GoonFi => self.attach_goonfi_accs(market),
+            Dex::BisonFi => self.attach_bisonfi_accs(market),
             _ => {
                 unimplemented!()
             }
@@ -821,18 +836,23 @@ impl<'a> ConstructSwap<'a> {
     }
 
     /// Attaches the required remaining accounts for multiple PMMs to the swap instruction.
+    /// Uses the first market for each PMM.
     pub fn attach_pmms_accs(&mut self, pmms: &[Dex]) -> &mut Self {
         pmms.iter().for_each(|pmm| {
-            self.attach_pmm_accs(pmm);
+            let market = self.cfg.get_market(pmm).unwrap_or_else(|| panic!("{pmm} not configured"));
+            self.attach_pmm_accs(pmm, &market);
         });
 
         self
     }
 
-    pub fn attach_solfiv2_accs(&mut self) {
-        let Some(cfg) = &self.cfg.solfi_v2 else {
-            panic!("SolFiV2 config is missing, cannot attach accounts.");
-        };
+    pub fn attach_solfiv2_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .solfi_v2
+            .as_ref()
+            .and_then(|c| c.swap_v1.get(market))
+            .unwrap_or_else(|| panic!("SolFiV2 market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false),
@@ -852,10 +872,13 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_humidifi_accs(&mut self) {
-        let Some(cfg) = &self.cfg.humidifi else {
-            panic!("HumidiFi config is missing, cannot attach accounts.");
-        };
+    pub fn attach_humidifi_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .humidifi
+            .as_ref()
+            .and_then(|c| c.swap_v1.get(market))
+            .unwrap_or_else(|| panic!("HumidiFi market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),
@@ -872,10 +895,9 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_zerofi_accs(&mut self) {
-        let Some(cfg) = &self.cfg.zerofi else {
-            panic!("ZeroFi config is missing, cannot attach accounts.");
-        };
+    pub fn attach_zerofi_accs(&mut self, market: &Pubkey) {
+        let cfg =
+            self.cfg.zerofi.as_ref().and_then(|c| c.swap_v1.get(market)).unwrap_or_else(|| panic!("ZeroFi market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false),
@@ -892,10 +914,13 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_obric_v2_accs(&mut self) {
-        let Some(cfg) = &self.cfg.obric_v2 else {
-            panic!("ObricV2 config is missing, cannot attach accounts.");
-        };
+    pub fn attach_obric_v2_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .obric_v2
+            .as_ref()
+            .and_then(|c| c.swap_v1.get(market))
+            .unwrap_or_else(|| panic!("ObricV2 market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()), false),
@@ -914,10 +939,13 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_tessera_accs(&mut self) {
-        let Some(cfg) = &self.cfg.tessera else {
-            panic!("Tessera config is missing, cannot attach accounts.");
-        };
+    pub fn attach_tessera_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .tessera
+            .as_ref()
+            .and_then(|c| c.swap_v1.get(market))
+            .unwrap_or_else(|| panic!("Tessera market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()), false),
@@ -936,10 +964,9 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_goonfi_accs(&mut self) {
-        let Some(cfg) = &self.cfg.goonfi else {
-            panic!("GoonFi config is missing, cannot attach accounts.");
-        };
+    pub fn attach_goonfi_accs(&mut self, market: &Pubkey) {
+        let cfg =
+            self.cfg.goonfi.as_ref().and_then(|c| c.swap_v1.get(market)).unwrap_or_else(|| panic!("GoonFi market {market} not configured"));
 
         let goonfi_param = Pubkey::new_from_array([0u8; 32]);
 
@@ -958,10 +985,13 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_bisonfi_accs(&mut self) {
-        let Some(cfg) = &self.cfg.bisonfi else {
-            panic!("BisonFi config is missing, cannot attach accounts.");
-        };
+    pub fn attach_bisonfi_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .bisonfi
+            .as_ref()
+            .and_then(|c| c.swap_v1.get(market))
+            .unwrap_or_else(|| panic!("BisonFi market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_bisonfi::id().to_bytes()), false),
@@ -1120,28 +1150,36 @@ impl Misc {
     }
 
     /// Fetches PMM accounts from an RPC node in a single atomic request.
-    ///
+    ///g
     /// Collects all account pubkeys from the provided DEX configurations and fetches
     /// them in one `get_multiple_accounts_with_commitment` call to ensure all accounts
     /// are read at the same slot.
-    pub fn fetch_accounts(pmms: &[Dex], client: &RpcClient, cfg: &PMMCfg) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Account)>>)> {
+    /// Returns `(slot, { Dex -> [(market_key, [(pubkey, account)])] })`.
+    pub fn fetch_accounts(
+        pmms: &[Dex],
+        client: &RpcClient,
+        cfg: &Cfg,
+    ) -> eyre::Result<(u64, HashMap<Dex, Vec<(Pubkey, Vec<(Pubkey, Account)>)>>)> {
         let pmms: HashSet<_> = pmms.iter().collect();
-        let mut res = HashMap::new();
+        let mut res: HashMap<Dex, Vec<(Pubkey, Vec<(Pubkey, Account)>)>> = HashMap::new();
 
-        // track which dex the accounts belong to
+        // (dex, market_key, range within all_pubkeys)
         let mut all_pubkeys: Vec<Pubkey> = vec![];
-        let mut dex_ranges: Vec<(Dex, std::ops::Range<usize>)> = vec![];
+        let mut ranges: Vec<(Dex, Pubkey, std::ops::Range<usize>)> = vec![];
 
         pmms.iter().for_each(|pmm| {
-            let Some(accs) = cfg.get_accounts(pmm) else {
-                warn!("skipping unsupported prop amms: {pmm}");
+            let markets = cfg.get_accounts(pmm);
+            if markets.is_empty() {
+                warn!("skipping unsupported prop amm: {pmm}");
                 return;
-            };
+            }
 
-            let start = all_pubkeys.len();
-            all_pubkeys.extend(accs.iter());
-            let end = all_pubkeys.len();
-            dex_ranges.push((**pmm, start..end));
+            for (market_key, accs) in markets {
+                let start = all_pubkeys.len();
+                all_pubkeys.extend(accs.iter());
+                let end = all_pubkeys.len();
+                ranges.push((**pmm, market_key, start..end));
+            }
         });
 
         let response = client.get_multiple_accounts_with_commitment(&all_pubkeys, CommitmentConfig::confirmed())?;
@@ -1150,20 +1188,20 @@ impl Misc {
 
         info!("fetched {} accounts for {pmms:?} at slot {slot}", all_pubkeys.len());
 
-        // reconstruct per-dex account maps
-        dex_ranges.iter().for_each(|(dex, range)| {
-            let mut dex_accs = vec![];
+        // reconstruct per-dex, per-market account maps
+        ranges.iter().for_each(|(dex, market_key, range)| {
+            let mut market_accs = vec![];
 
             all_pubkeys[range.clone()].iter().enumerate().for_each(|(i, pubkey)| {
                 let idx = range.start + i;
                 if let Some(acc) = &all_accs[idx] {
-                    dex_accs.push((*pubkey, acc.clone()));
+                    market_accs.push((*pubkey, acc.clone()));
                 } else {
-                    warn!("account {pubkey} not found for {dex}");
+                    warn!("account {pubkey} not found for {dex} market {market_key}");
                 }
             });
 
-            res.insert(*dex, dex_accs);
+            res.entry(*dex).or_default().push((*market_key, market_accs));
         });
 
         Ok((slot, res))
@@ -1362,11 +1400,11 @@ impl Benchmark {
 
 pub struct App {
     args: CliArgs,
-    cfg: PMMCfg,
+    cfg: Cfg,
 }
 
 impl App {
-    pub fn new(args: CliArgs, cfg: PMMCfg) -> Self {
+    pub fn new(args: CliArgs, cfg: Cfg) -> Self {
         Self { args, cfg }
     }
 
@@ -1383,16 +1421,17 @@ impl App {
         let Cmd::FetchAccounts { http_url, accounts_path, pmms, .. } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
-        let (slot, fetched) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
+        let dexes: Vec<Dex> = pmms.iter().map(|t| t.dex).collect();
+        let (slot, fetched) = Misc::fetch_accounts(&dexes, &rpc_client, &self.cfg)?;
 
-        fetched.iter().try_for_each(|(dex, accs)| -> eyre::Result<()> {
-            accs.iter().try_for_each(|(pubkey, acc)| -> eyre::Result<()> {
-                Misc::save_account_to_disk(accounts_path, dex, pubkey, acc, slot)?;
-                info!("saved account {pubkey} for {dex}");
-                Ok(())
-            })?;
-
-            Ok(())
+        fetched.iter().try_for_each(|(dex, markets)| -> eyre::Result<()> {
+            markets.iter().try_for_each(|(_, accs)| -> eyre::Result<()> {
+                accs.iter().try_for_each(|(pubkey, acc)| -> eyre::Result<()> {
+                    Misc::save_account_to_disk(accounts_path, dex, pubkey, acc, slot)?;
+                    info!("saved account {pubkey} for {dex}");
+                    Ok(())
+                })
+            })
         })?;
 
         info!("done fetching accounts at slot {slot}");
@@ -1403,7 +1442,8 @@ impl App {
         let Cmd::FetchPrograms { http_url, programs_path, pmms, .. } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(http_url.expose_secret().to_string());
-        let programs = Misc::fetch_programs(pmms, &rpc_client)?;
+        let dexes: Vec<Dex> = pmms.iter().map(|t| t.dex).collect();
+        let programs = Misc::fetch_programs(&dexes, &rpc_client)?;
 
         let data_dir = Path::new(programs_path.as_str());
         if !data_dir.exists() {
@@ -1433,20 +1473,26 @@ impl App {
         let benchmark = Benchmark::new().range_from_human(*range, src_token.dec);
         let multi = MultiProgress::new();
 
-        let (slot, accs_map) = if common.jit_accounts {
-            let (s, m) = Misc::fetch_accounts(pmms, &rpc_client, &self.cfg)?;
-            (Some(s), m)
+        let dexes: Vec<Dex> = pmms.iter().map(|t| t.dex).collect();
+
+        // Flatten per-market accounts into per-dex for set_accounts compatibility
+        let (slot, accs_map): (Option<u64>, HashMap<Dex, Vec<(Pubkey, Account)>>) = if common.jit_accounts {
+            let (s, m) = Misc::fetch_accounts(&dexes, &rpc_client, &self.cfg)?;
+            let flat: HashMap<Dex, Vec<(Pubkey, Account)>> =
+                m.into_iter().map(|(dex, markets)| (dex, markets.into_iter().flat_map(|(_, accs)| accs).collect())).collect();
+            (Some(s), flat)
         } else {
-            Misc::read_accounts_from_disk(pmms, &common.accounts_path)?
+            Misc::read_accounts_from_disk(&dexes, &common.accounts_path)?
         };
 
         thread::scope(|s| {
             let handles: Vec<_> = pmms
                 .iter()
-                .map(|pmm| {
+                .map(|target| {
                     let (cfg, multi, mints) = (&self.cfg, &multi, &mints);
                     let rpc_client = &rpc_client;
-                    let pmm_accs = accs_map.get(pmm).cloned().unwrap_or_default();
+                    let pmm = target.dex;
+                    let pmm_accs = accs_map.get(&pmm).cloned().unwrap_or_default();
                     let benchmark = benchmark.clone();
 
                     s.spawn(move || -> eyre::Result<()> {
@@ -1454,7 +1500,7 @@ impl App {
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
                             let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.get_and_load_programs(&[*pmm], common.jit_programs, *spoof, Some(rpc_client))?.setup_wallet(
+                            env.get_and_load_programs(&[pmm], common.jit_programs, *spoof, Some(rpc_client))?.setup_wallet(
                                 &src_token.addr,
                                 benchmark.range_end(),
                                 consts::AIRDROP_AMOUNT,
@@ -1464,17 +1510,17 @@ impl App {
                             Ok((env, src_ata, dst_ata))
                         })?;
 
-                        let market = cfg.get_market(pmm).unwrap_or_else(|| panic!("{} not configured", pmm)).to_string();
+                        let market = cfg.get_market(&pmm).unwrap_or_else(|| panic!("{} not configured", pmm)).to_string();
 
                         let pb = multi.add(ProgressBar::new(benchmark.range_count()));
                         pb.set_style(
                             ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars(consts::PROGRESS_CHARS),
                         );
-                        pb.set_prefix(format!("{}", pmm));
+                        pb.set_prefix(format!("{}", target));
 
                         let (mut records, mut warn_cnt) = (vec![], u64::default());
                         let routes: Vec<Vec<magnus_router_client::types::Route>> =
-                            vec![vec![Route { dexes: vec![*pmm], weights: vec![100] }.into()]];
+                            vec![vec![Route { dexes: vec![pmm], weights: vec![100] }.into()]];
 
                         benchmark.range_iter().try_for_each(|amount_in| -> eyre::Result<()> {
                             env.reset_wallet(&src_token.addr, amount_in)?;
@@ -1503,7 +1549,7 @@ impl App {
                                 src_mint: src_token.addr,
                                 dst_mint: dst_token.addr,
                             }
-                            .attach_pmm_accs(pmm)
+                            .attach_pmms_accs(&[pmm])
                             .instruction();
 
                             if let Some(aggr) = spoof {
@@ -1572,7 +1618,8 @@ impl App {
     pub fn simulate(&self) -> eyre::Result<()> {
         let (common, amount_in, pmms, weights, spoof) = match &self.args.cmd {
             Cmd::Single { common, amount_in, pmms, weights, spoof } => {
-                (common, vec![*amount_in], vec![pmms.clone()], vec![weights.clone()], spoof)
+                let dexes: Vec<Dex> = pmms.iter().map(|t| t.dex).collect();
+                (common, vec![*amount_in], vec![dexes], vec![weights.clone()], spoof)
             }
             Cmd::Multi { common, amount_in, pmms, weights, spoof } => {
                 let pmms = CliArgs::parse_nested_pmms(pmms).expect("invalid format for nested dexes");
@@ -1883,8 +1930,8 @@ mod tests {
     mod environment {
         use super::*;
 
-        fn default_cfg() -> PMMCfg {
-            PMMCfg::default()
+        fn default_cfg() -> Cfg {
+            toml::from_str("").unwrap()
         }
 
         #[test]
@@ -2150,6 +2197,172 @@ mod tests {
             let token_acc = spl_token::state::Account::unpack(&account.data).unwrap();
 
             assert_eq!(token_acc.amount, 0);
+        }
+    }
+    mod config {
+        use std::{collections::HashMap, str::FromStr};
+
+        use serde::Deserialize;
+        use solana_sdk::pubkey::Pubkey;
+
+        #[derive(Debug, Deserialize)]
+        struct Cfg {
+            humidifi: Option<HumidifiV1Cfg>,
+        }
+
+        #[derive(Debug, Deserialize)]
+        #[serde(rename_all = "kebab-case")]
+        struct HumidifiV1Cfg {
+            #[serde(default, deserialize_with = "vec_to_map")]
+            swap_v1: HashMap<Pubkey, MarketCfg>,
+            #[serde(default, deserialize_with = "vec_to_map")]
+            swap_v2: HashMap<Pubkey, MarketV2Cfg>,
+        }
+
+        trait Keyed {
+            fn market_key(&self) -> Pubkey;
+        }
+
+        #[derive(Debug, Deserialize, Clone)]
+        struct MarketCfg {
+            market: String,
+            base_ta: String,
+            quote_ta: String,
+        }
+
+        impl Keyed for MarketCfg {
+            fn market_key(&self) -> Pubkey {
+                Pubkey::from_str(&self.market).unwrap()
+            }
+        }
+
+        #[derive(Debug, Deserialize, Clone)]
+        struct MarketV2Cfg {
+            market: String,
+            base_ta: String,
+            quote_ta: String,
+            token0_mint: String,
+            token1_mint: String,
+            rand1: String,
+            rand2: String,
+        }
+
+        impl Keyed for MarketV2Cfg {
+            fn market_key(&self) -> Pubkey {
+                Pubkey::from_str(&self.market).unwrap()
+            }
+        }
+
+        fn vec_to_map<'de, D, T>(deserializer: D) -> Result<HashMap<Pubkey, T>, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+            T: Deserialize<'de> + Keyed,
+        {
+            let items: Vec<T> = Vec::deserialize(deserializer)?;
+            Ok(items.into_iter().map(|item| (item.market_key(), item)).collect())
+        }
+
+        fn pk(s: &str) -> Pubkey {
+            Pubkey::from_str(s).unwrap()
+        }
+
+        #[test]
+        fn test_parse_nested_toml_single_market() {
+            let toml = r#"
+                [humidifi]
+                [[humidifi.swap-v1]]
+                market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+                base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+                quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+            "#;
+
+            let cfg: Cfg = toml::from_str(toml).unwrap();
+            let humidifi = cfg.humidifi.unwrap();
+
+            assert_eq!(humidifi.swap_v1.len(), 1);
+            assert!(humidifi.swap_v1.contains_key(&pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH")));
+        }
+
+        #[test]
+        fn test_parse_nested_toml_multiple_markets() {
+            let toml = r#"
+                [humidifi]
+                [[humidifi.swap-v1]]
+                market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+                base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+                quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+
+                [[humidifi.swap-v1]]
+                market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
+                base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+                quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+            "#;
+
+            let cfg: Cfg = toml::from_str(toml).unwrap();
+            let markets = cfg.humidifi.unwrap().swap_v1;
+
+            assert_eq!(markets.len(), 2);
+            assert!(markets.contains_key(&pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH")));
+            assert!(markets.contains_key(&pk("DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW")));
+        }
+
+        #[test]
+        fn test_parse_nested_toml_mixed_swap_versions() {
+            let toml = r#"
+                [humidifi]
+                [[humidifi.swap-v1]]
+                market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+                base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+                quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+
+                [[humidifi.swap-v2]]
+                market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+                base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+                quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+                token0_mint = "So11111111111111111111111111111111111111112"
+                token1_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+                rand1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+                rand2 = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+            "#;
+
+            let cfg: Cfg = toml::from_str(toml).unwrap();
+            let humidifi = cfg.humidifi.unwrap();
+
+            assert_eq!(humidifi.swap_v1.len(), 1);
+            assert_eq!(humidifi.swap_v2.len(), 1);
+
+            let v2 = &humidifi.swap_v2[&pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH")];
+            assert_eq!(v2.token0_mint, "So11111111111111111111111111111111111111112");
+            assert_eq!(v2.rand1, "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1");
+        }
+
+        #[test]
+        fn test_parse_nested_toml_lookup_by_prefix() {
+            let toml = r#"
+                [humidifi]
+                [[humidifi.swap-v1]]
+                market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+                base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+                quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+
+                [[humidifi.swap-v1]]
+                market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
+                base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+                quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+            "#;
+
+            let cfg: Cfg = toml::from_str(toml).unwrap();
+            let markets = cfg.humidifi.unwrap().swap_v1;
+
+            let prefix = "Fksf";
+            let found: Vec<_> = markets.keys().filter(|k| k.to_string().starts_with(prefix)).collect();
+            assert_eq!(found.len(), 1);
+            assert_eq!(*found[0], pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"));
+
+            let prefix = "DB3s";
+            let found: Vec<_> = markets.keys().filter(|k| k.to_string().starts_with(prefix)).collect();
+            assert_eq!(found.len(), 1);
+            assert_eq!(*found[0], pk("DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"));
         }
     }
 }
