@@ -107,6 +107,8 @@ impl Cfg {
 
         match dex {
             Dex::HumidiFi => collect_markets!(self.humidifi, swap_v1),
+            Dex::HumidiFiSwapV2 => collect_markets!(self.humidifi, swap_v2),
+
             Dex::Tessera => collect_markets!(self.tessera, swap_v1),
             Dex::GoonFi => collect_markets!(self.goonfi, swap_v1),
             Dex::SolfiV2 => collect_markets!(self.solfi_v2, swap_v1),
@@ -134,6 +136,9 @@ impl Cfg {
 pub struct HumidifiCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
     pub swap_v1: IndexMap<Pubkey, HumidifiSwapV1>,
+
+    #[serde(default, deserialize_with = "Misc::deser_market")]
+    pub swap_v2: IndexMap<Pubkey, HumidifiSwapV2>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -153,6 +158,36 @@ impl HumidifiSwapV1 {
 }
 
 impl Keyed for HumidifiSwapV1 {
+    fn market_key(&self) -> Pubkey {
+        self.market
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct HumidifiSwapV2 {
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub market: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub base_ta: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub quote_ta: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub token0_mint: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub token1_mint: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub add1: Pubkey,
+    #[serde(deserialize_with = "Misc::deser_pubkey")]
+    pub vote: Pubkey,
+}
+
+impl HumidifiSwapV2 {
+    pub fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta, self.token0_mint, self.token1_mint, self.add1, self.vote]
+    }
+}
+
+impl Keyed for HumidifiSwapV2 {
     fn market_key(&self) -> Pubkey {
         self.market
     }

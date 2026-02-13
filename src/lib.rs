@@ -399,6 +399,7 @@ impl<'a> ConstructSwap<'a> {
     pub fn attach_pmm_accs(&mut self, pmm: &Dex, market: &Pubkey) -> &mut Self {
         match pmm {
             Dex::HumidiFi => self.attach_humidifi_accs(market),
+            Dex::HumidiFiSwapV2 => self.attach_humidifi_swap_v2_accs(market),
             Dex::SolfiV2 => self.attach_solfiv2_accs(market),
             Dex::ZeroFi => self.attach_zerofi_accs(market),
             Dex::ObricV2 => self.attach_obric_v2_accs(market),
@@ -468,6 +469,34 @@ impl<'a> ConstructSwap<'a> {
             AccountMeta::new_readonly(sysvar::clock::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]);
+    }
+
+    pub fn attach_humidifi_swap_v2_accs(&mut self, market: &Pubkey) {
+        let cfg = self
+            .cfg
+            .humidifi
+            .as_ref()
+            .and_then(|c| c.swap_v2.get(market))
+            .unwrap_or_else(|| panic!("HumidiFiSwapV2 market {market} not configured"));
+
+        self.builder.add_remaining_accounts(&[
+            AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),
+            AccountMeta::new(self.payer, true),
+            AccountMeta::new(self.src_ta, false),
+            AccountMeta::new(self.dst_ta, false),
+            AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false),
+            AccountMeta::new(cfg.market, false),
+            AccountMeta::new(cfg.base_ta, false),
+            AccountMeta::new(cfg.quote_ta, false),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+            AccountMeta::new(cfg.token0_mint, false),
+            AccountMeta::new(cfg.token1_mint, false),
+            AccountMeta::new(cfg.add1, false),
+            AccountMeta::new_readonly(cfg.vote, false),
         ]);
     }
 

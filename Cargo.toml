@@ -20,8 +20,8 @@ eyre = "0.6.12"
 indexmap = { version = "2.13.0", features = ["serde"] }
 indicatif = "0.18.3"
 litesvm = "0.8.2"
-magnus-router-client = { git = "https://git@github.com/limechain/magnus.git", rev = "24958ce" }
-magnus-shared = { git = "https://git@github.com/limechain/magnus.git", rev = "24958ce" }
+magnus-router-client = { git = "https://git@github.com/limechain/magnus.git", rev = "1261d0b" }
+magnus-shared = { git = "https://git@github.com/limechain/magnus.git", rev = "1261d0b" }
 polars = { version = "0.52", features = ["parquet"] }
 secrecy = "0.10.3"
 serde = { version = "1.0.228", features = ["derive"] }
