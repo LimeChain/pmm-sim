@@ -20,6 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup install 1.94.0 && rustup default 1.94.0
+      - run: rustup install 1.93.1 && rustup default 1.93.1
       - run: cargo build --verbose
       - run: cargo test --verbose
