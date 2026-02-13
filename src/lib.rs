@@ -399,7 +399,7 @@ impl<'a> ConstructSwap<'a> {
     pub fn attach_pmm_accs(&mut self, pmm: &Dex, market: &Pubkey) -> &mut Self {
         match pmm {
             Dex::HumidiFi => self.attach_humidifi_accs(market),
-            Dex::HumidiFiSwapV2 => self.attach_humidifi_swap_v2_accs(market),
+            Dex::HumidiFiSwapV2 | Dex::HumidiFiSwapV3 => self.attach_humidifi_swap_v2v3_accs(pmm, market),
             Dex::SolfiV2 => self.attach_solfiv2_accs(market),
             Dex::ZeroFi => self.attach_zerofi_accs(market),
             Dex::ObricV2 => self.attach_obric_v2_accs(market),
@@ -472,13 +472,14 @@ impl<'a> ConstructSwap<'a> {
         ]);
     }
 
-    pub fn attach_humidifi_swap_v2_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .humidifi
-            .as_ref()
-            .and_then(|c| c.swap_v2.get(market))
-            .unwrap_or_else(|| panic!("HumidiFiSwapV2 market {market} not configured"));
+    pub fn attach_humidifi_swap_v2v3_accs(&mut self, pmm: &Dex, market: &Pubkey) {
+        let humidifi = self.cfg.humidifi.as_ref().unwrap_or_else(|| panic!("HumidiFi not configured"));
+        let cfg = match pmm {
+            Dex::HumidiFiSwapV2 => humidifi.swap_v2.get(market),
+            Dex::HumidiFiSwapV3 => humidifi.swap_v3.get(market),
+            _ => unreachable!(),
+        }
+        .unwrap_or_else(|| panic!("{pmm} market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[
             AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false),

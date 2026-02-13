@@ -108,7 +108,7 @@ impl Cfg {
         match dex {
             Dex::HumidiFi => collect_markets!(self.humidifi, swap_v1),
             Dex::HumidiFiSwapV2 => collect_markets!(self.humidifi, swap_v2),
-
+            Dex::HumidiFiSwapV3 => collect_markets!(self.humidifi, swap_v3),
             Dex::Tessera => collect_markets!(self.tessera, swap_v1),
             Dex::GoonFi => collect_markets!(self.goonfi, swap_v1),
             Dex::SolfiV2 => collect_markets!(self.solfi_v2, swap_v1),
@@ -139,6 +139,9 @@ pub struct HumidifiCfg {
 
     #[serde(default, deserialize_with = "Misc::deser_market")]
     pub swap_v2: IndexMap<Pubkey, HumidifiSwapV2>,
+
+    #[serde(default, deserialize_with = "Misc::deser_market")]
+    pub swap_v3: IndexMap<Pubkey, HumidifiSwapV2>,
 }
 
 #[derive(Debug, Deserialize, Clone)]

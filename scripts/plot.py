@@ -2,19 +2,41 @@
 """Plot the exchange rate and compute units for Solana Prop AMM markets."""
 
 import os
+import random
 
 import matplotlib.pyplot as plt
 import polars as pl
 
+MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
+LINESTYLES = ["--", "-.", ":"]
 
-def plot_exchange_rate(files: list[str], block: bool = True):
+
+def plot_exchange_rate(
+    files: list[str],
+    block: bool = True,
+    markers: bool = False,
+    linestyle: str | None = None,
+):
     _, ax = plt.subplots(figsize=(12, 8))
 
-    for file in files:
+    for i, file in enumerate(files):
         df = pl.read_parquet(file)
         df = df.with_columns((pl.col("amount_out") / pl.col("amount_in")).alias("rate"))
         label = f"{df['pmm'][0]} ({df['market'][0]})"
-        ax.plot(df["amount_in"], df["rate"], marker="o", markersize=3, label=label)
+        kwargs = {}
+        if markers:
+            kwargs["marker"] = MARKERS[i % len(MARKERS)]
+            kwargs["markersize"] = 6
+            kwargs["markevery"] = random.randint(5, 30)
+        ls = linestyle if linestyle else "-"
+        ax.plot(
+            df["amount_in"],
+            df["rate"],
+            linestyle=ls,
+            linewidth=1,
+            label=label,
+            **kwargs,
+        )
 
     first_df = pl.read_parquet(files[0])
     title = f"Solana Prop AMM Markets ({first_df['src_token'][0]} → {first_df['dst_token'][0]}) - slot {first_df['slot'][0]} | EXCHANGE RATE"
@@ -29,14 +51,30 @@ def plot_exchange_rate(files: list[str], block: bool = True):
     plt.show(block=block)
 
 
-def plot_compute_units(files: list[str], block: bool = True):
+def plot_compute_units(
+    files: list[str],
+    block: bool = True,
+    markers: bool = False,
+    linestyle: str | None = None,
+):
     _, ax = plt.subplots(figsize=(12, 8))
 
-    for file in files:
+    for i, file in enumerate(files):
         df = pl.read_parquet(file)
         label = f"{df['pmm'][0]} ({df['market'][0]})"
+        kwargs = {}
+        if markers:
+            kwargs["marker"] = MARKERS[i % len(MARKERS)]
+            kwargs["markersize"] = 6
+            kwargs["markevery"] = random.randint(5, 30)
+        ls = linestyle if linestyle else "-"
         ax.plot(
-            df["amount_in"], df["compute_units"], marker="o", markersize=3, label=label
+            df["amount_in"],
+            df["compute_units"],
+            linestyle=ls,
+            linewidth=1,
+            label=label,
+            **kwargs,
         )
 
     first_df = pl.read_parquet(files[0])
@@ -60,6 +98,15 @@ if __name__ == "__main__":
     parser.add_argument(
         "--type", choices=["rate", "compute", "all"], default="all", help="Plot type"
     )
+    parser.add_argument(
+        "--markers", action="store_true", help="Show markers on data points"
+    )
+    parser.add_argument(
+        "--linestyle",
+        choices=["-", "--", "-.", ":"],
+        default=None,
+        help="Line style (default: cycles per dataset)",
+    )
     args = parser.parse_args()
 
     valid_files = []
@@ -77,11 +124,13 @@ if __name__ == "__main__":
         print("No files with records to plot")
         exit(0)
 
+    plot_kwargs = dict(markers=args.markers, linestyle=args.linestyle)
+
     if args.type == "all":
-        plot_compute_units(valid_files, block=False)
-        plot_exchange_rate(valid_files, block=True)
+        plot_compute_units(valid_files, block=False, **plot_kwargs)
+        plot_exchange_rate(valid_files, block=True, **plot_kwargs)
     else:
         if args.type == "rate":
-            plot_exchange_rate(valid_files)
+            plot_exchange_rate(valid_files, **plot_kwargs)
         elif args.type == "compute":
-            plot_compute_units(valid_files)
+            plot_compute_units(valid_files, **plot_kwargs)

@@ -92,6 +92,52 @@ token1_mint = "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB"
 add1 = "11111111111111111111111111111111"
 vote = "11111111111111111111111111111111"
 
+## HUMIDIFI — SWAP_V3
+[[humidifi.swap-v3]] # WSOL-USDC
+market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+token0_mint = "So11111111111111111111111111111111111111112"
+token1_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+add1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+vote = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+
+[[humidifi.swap-v3]] # WSOL-USDC
+market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
+base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+token0_mint = "So11111111111111111111111111111111111111112"
+token1_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+add1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+vote = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+
+[[humidifi.swap-v3]] # WSOL-USDC
+market = "6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ"
+base_ta = "Cv9St5tDTGwpbG5UVvM6QvFmf3FYSXc14W9BYvQN5wAZ"
+quote_ta = "7Rf8Gu8YemSoGjZT3z1cL5BT9HLbGywcyaz8Mrbhd1MH"
+token0_mint = "So11111111111111111111111111111111111111112"
+token1_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+add1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+vote = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+
+[[humidifi.swap-v3]] # WSOL-USDC
+market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
+base_ta = "ECEPWwZJ1U1Vjsj1X5sUbZYETKMSCjYHuoTMVitCn64t"
+quote_ta = "FBWtVVvzsRuAAzVX8ua1hden9KmgPrC2rFijuwEn1ngJ"
+token0_mint = "So11111111111111111111111111111111111111112"
+token1_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+add1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+vote = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+
+[[humidifi.swap-v3]] # WSOL-USD1
+market = "5dhYayH9qvzNyCPoh2hKN8TJqumoGsWdyZ9UfPLXBfD9"
+base_ta = "86DHdQfRpghMCmXYKDg93bXtmi3doBL5NeY9DYwAj6rz"
+quote_ta = "FqEVwrQJsJ4AciwJRYLPQEdstDfUYJp6z3f6XYb6MnSb"
+token0_mint = "So11111111111111111111111111111111111111112"
+token1_mint = "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB"
+add1 = "4nXmcNY1NjNd9sjA3qajUdUYpVDvwxTzGZT9oS4KpaD1"
+vote = "J1to1yufRnoWn81KYg1XkTWzmKjnYSnmE2VY8DGUJ9Qv"
+
 [tessera]
 [[tessera.swap-v1]]
 market = "FLckHLGMJy5gEoXWwcE68Nprde1D4araK4TGLw4pQq2n"
