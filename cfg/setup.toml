@@ -32,8 +32,8 @@ quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
 
 [[humidifi.swap-v1]]
 market = "6n9VhCwQ7EwK6NqFDjnHPzEk6wZdRBTfh43RFgHQWHuQ"
-base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
-quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+base_ta = "Cv9St5tDTGwpbG5UVvM6QvFmf3FYSXc14W9BYvQN5wAZ"
+quote_ta = "7Rf8Gu8YemSoGjZT3z1cL5BT9HLbGywcyaz8Mrbhd1MH"
 
 [[humidifi.swap-v1]]
 market = "AvGeFw71N5sNfV97mZ1uNrHg4yfufRicCJUrS9j2ehTX"
@@ -70,9 +70,16 @@ oracle = "2ny7eGyZCoeEVTkNLf5HcnJFBKkyA4p4gcrtb3b8y8ou"
 base_mint = "So11111111111111111111111111111111111111112"
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
-[zerofi]
+[[solfi-v2.swap-v1]]
+market = "FkEB6uvyzuoaGpgs4yRtFtxC4WJxhejNFbUkj5R6wR32"
+base_ta = "5bHD9xdEzJdkVuhs54mGPC9BZgUshqgMg4tqmTwhWggc"
+quote_ta = "ARWaajRJyF6PKQryJ4HLzLBfTWM2qmVQUQVtBjk6PgPc"
+cfg = "QoFvFhDZg9TaZEi4SsasWpH5xXzk3zBqfRyicGexfNQ"
+oracle = "CyCUgmaCYUZxbux3J2svDzxSryVFMtZNPrnMKS41nc4G"
+base_mint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
-# https://solscan.io/account/2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi
+[zerofi]
 [[zerofi.swap-v1]]
 market = "2h9hhu3gxY9kCdXEwdTHV8yPAMYVoHgKopRyG1HbDwfi"
 vault_info_base = "7RHJ2WfexqUxy7SXfbNZRZDgZi3D9jtMAQp9VhfzpU8T"
@@ -82,7 +89,7 @@ vault_quote = "7wYJVD8iXmMQjND1fwi1hPr68QwruVVtirbotyJZXaVH"
 
 [obric-v2]
 # https://solscan.io/account/BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG (USDT-USDC)
-[[obric-v2.swap-v1]]
+[[obric-v2.swap-v2]]
 market = "BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG"
 second_ref_oracle = "GZsNmWKbqhMYtdSkkvMdEyQF9k5mLmP7tTKYWZjcHVPE"
 third_ref_oracle = "6YawcNeZ74tRyCv4UfGydYMr7eho7vbUR6ScVffxKAb3"
@@ -97,3 +104,8 @@ y_price_feed = "J4HJYz4p7TRP96WVFky3vh7XryxoFehHjoRySUTeSeXw"
 market = "51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ"
 market_base_ta = "FxGiN5NkigicwrnFshZEAUH9C13yrBALmgYxA9x8sfnQ"
 market_quote_ta = "6DMF4t6Ks8yXhG8K3rrTAeNYrqNrr1DwewHvBmH3a3FX"
+
+[[bisonfi.swap-v1]]
+market = "FC9pWtfdtbyGZ5WHTLneoMSUx6jmTDgqKaxDcm2trsND"
+market_base_ta = "CL9xU6uijD4FL3ximjt65R6YhUHm1qtiTbBvW1s9TXHZ"
+market_quote_ta = "Dp4c6UyCHy6N4Xmg2URwq77SGWCRFGKQJFuDnCkXVUF4"

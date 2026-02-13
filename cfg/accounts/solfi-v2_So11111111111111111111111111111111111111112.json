@@ -5,10 +5,10 @@
       "base64"
     ],
     "executable": false,
-    "lamports": 1382158601022,
+    "lamports": 1382256530709,
     "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     "rentEpoch": 18446744073709551615
   },
   "pubkey": "So11111111111111111111111111111111111111112",
-  "slot": 399758943
+  "slot": 399939989
 }

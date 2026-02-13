@@ -495,7 +495,7 @@ impl<'a> ConstructSwap<'a> {
             .cfg
             .obric_v2
             .as_ref()
-            .and_then(|c| c.swap_v1.get(market))
+            .and_then(|c| c.swap_v2.get(market))
             .unwrap_or_else(|| panic!("ObricV2 market {market} not configured"));
 
         self.builder.add_remaining_accounts(&[

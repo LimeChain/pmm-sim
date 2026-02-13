@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt, fs, str::FromStr};
 
+use indexmap::IndexMap;
 use magnus_shared::Dex;
 use serde::Deserialize;
 use solana_sdk::pubkey::Pubkey;
@@ -99,19 +100,19 @@ impl Cfg {
     /// Returns all (market_key, account_pubkeys) pairs for the given DEX.
     pub fn get_accounts(&self, dex: &Dex) -> Vec<(Pubkey, Vec<Pubkey>)> {
         macro_rules! collect_markets {
-            ($field:expr) => {
-                $field.as_ref().map_or_else(Vec::new, |cfg| cfg.swap_v1.iter().map(|(k, v)| (*k, v.accounts())).collect())
+            ($field:expr, $ver:ident) => {
+                $field.as_ref().map_or_else(Vec::new, |cfg| cfg.$ver.iter().map(|(k, v)| (*k, v.accounts())).collect())
             };
         }
 
         match dex {
-            Dex::HumidiFi => collect_markets!(self.humidifi),
-            Dex::Tessera => collect_markets!(self.tessera),
-            Dex::GoonFi => collect_markets!(self.goonfi),
-            Dex::SolfiV2 => collect_markets!(self.solfi_v2),
-            Dex::ZeroFi => collect_markets!(self.zerofi),
-            Dex::ObricV2 => collect_markets!(self.obric_v2),
-            Dex::BisonFi => collect_markets!(self.bisonfi),
+            Dex::HumidiFi => collect_markets!(self.humidifi, swap_v1),
+            Dex::Tessera => collect_markets!(self.tessera, swap_v1),
+            Dex::GoonFi => collect_markets!(self.goonfi, swap_v1),
+            Dex::SolfiV2 => collect_markets!(self.solfi_v2, swap_v1),
+            Dex::ZeroFi => collect_markets!(self.zerofi, swap_v1),
+            Dex::ObricV2 => collect_markets!(self.obric_v2, swap_v2),
+            Dex::BisonFi => collect_markets!(self.bisonfi, swap_v1),
             _ => vec![],
         }
     }
@@ -132,7 +133,7 @@ impl Cfg {
 #[serde(rename_all = "kebab-case")]
 pub struct HumidifiCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, HumidifiSwapV1>,
+    pub swap_v1: IndexMap<Pubkey, HumidifiSwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -157,17 +158,15 @@ impl Keyed for HumidifiSwapV1 {
     }
 }
 
-// -- Tessera --
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct TesseraCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, TesseraMarket>,
+    pub swap_v1: IndexMap<Pubkey, TesseraSwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct TesseraMarket {
+pub struct TesseraSwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -178,29 +177,27 @@ pub struct TesseraMarket {
     pub global_state: Pubkey,
 }
 
-impl TesseraMarket {
+impl TesseraSwapV1 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![self.market, self.base_ta, self.quote_ta, self.global_state]
     }
 }
 
-impl Keyed for TesseraMarket {
+impl Keyed for TesseraSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
 }
 
-// -- Goonfi --
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GoonfiCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, GoonfiMarket>,
+    pub swap_v1: IndexMap<Pubkey, GoonfiSwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct GoonfiMarket {
+pub struct GoonfiSwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -211,29 +208,27 @@ pub struct GoonfiMarket {
     pub blacklist: Pubkey,
 }
 
-impl GoonfiMarket {
+impl GoonfiSwapV1 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![self.market, self.base_ta, self.quote_ta, self.blacklist]
     }
 }
 
-impl Keyed for GoonfiMarket {
+impl Keyed for GoonfiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
 }
 
-// -- SolFi V2 --
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SolfiV2Cfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, SolfiV2Market>,
+    pub swap_v1: IndexMap<Pubkey, SolfiV2SwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct SolfiV2Market {
+pub struct SolfiV2SwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -250,13 +245,13 @@ pub struct SolfiV2Market {
     pub quote_mint: Pubkey,
 }
 
-impl SolfiV2Market {
+impl SolfiV2SwapV1 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![self.market, self.base_ta, self.quote_ta, self.cfg, self.oracle, self.base_mint, self.quote_mint]
     }
 }
 
-impl Keyed for SolfiV2Market {
+impl Keyed for SolfiV2SwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
@@ -266,11 +261,11 @@ impl Keyed for SolfiV2Market {
 #[serde(rename_all = "kebab-case")]
 pub struct ZerofiCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, ZerofiMarket>,
+    pub swap_v1: IndexMap<Pubkey, ZerofiSwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ZerofiMarket {
+pub struct ZerofiSwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -283,29 +278,27 @@ pub struct ZerofiMarket {
     pub vault_quote: Pubkey,
 }
 
-impl ZerofiMarket {
+impl ZerofiSwapV1 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![self.market, self.vault_info_base, self.vault_base, self.vault_info_quote, self.vault_quote]
     }
 }
 
-impl Keyed for ZerofiMarket {
+impl Keyed for ZerofiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
 }
 
-// -- Obric V2 --
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ObricV2Cfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, ObricV2Market>,
+    pub swap_v2: IndexMap<Pubkey, ObricV2SwapV2>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct ObricV2Market {
+pub struct ObricV2SwapV2 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -324,7 +317,7 @@ pub struct ObricV2Market {
     pub y_price_feed: Pubkey,
 }
 
-impl ObricV2Market {
+impl ObricV2SwapV2 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![
             self.market,
@@ -339,23 +332,21 @@ impl ObricV2Market {
     }
 }
 
-impl Keyed for ObricV2Market {
+impl Keyed for ObricV2SwapV2 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
 }
 
-// -- BisonFi --
-
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct BisonfiCfg {
     #[serde(default, deserialize_with = "Misc::deser_market")]
-    pub swap_v1: HashMap<Pubkey, BisonfiMarket>,
+    pub swap_v1: IndexMap<Pubkey, BisonfiSwapV1>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct BisonfiMarket {
+pub struct BisonfiSwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
     pub market: Pubkey,
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -364,13 +355,13 @@ pub struct BisonfiMarket {
     pub market_quote_ta: Pubkey,
 }
 
-impl BisonfiMarket {
+impl BisonfiSwapV1 {
     pub fn accounts(&self) -> Vec<Pubkey> {
         vec![self.market, self.market_base_ta, self.market_quote_ta]
     }
 }
 
-impl Keyed for BisonfiMarket {
+impl Keyed for BisonfiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
     }
@@ -436,6 +427,31 @@ mod tests {
         assert_eq!(markets.len(), 2);
         assert!(markets.contains_key(&pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH")));
         assert!(markets.contains_key(&pk("DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW")));
+    }
+
+    #[test]
+    fn markets_preserve_insertion_order() {
+        let toml = r#"
+            [humidifi]
+            [[humidifi.swap-v1]]
+            market = "FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"
+            base_ta = "C3FzbX9n1YD2dow2dCmEv5uNyyf22Gb3TLAEqGBhw5fY"
+            quote_ta = "3RWFAQBRkNGq7CMGcTLK3kXDgFTe9jgMeFYqk8nHwcWh"
+
+            [[humidifi.swap-v1]]
+            market = "DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"
+            base_ta = "8BrVfsvzb1DZqCactbYWoKSv24AfsLBuXJqzpzYCwznF"
+            quote_ta = "HsQcHFFNUVTp3MWrXYbuZchBNd4Pwk8636bKzLvpfYNR"
+        "#;
+
+        let cfg: Cfg = toml::from_str(toml).unwrap();
+        let keys: Vec<_> = cfg.humidifi.as_ref().unwrap().swap_v1.keys().collect();
+
+        assert_eq!(*keys[0], pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"));
+        assert_eq!(*keys[1], pk("DB3sUCP2H4icbeKmK6yb6nUxU5ogbcRHtGuq7W2RoRwW"));
+
+        // get_first_market must return the first declared market
+        assert_eq!(cfg.get_first_market(&Dex::HumidiFi).unwrap(), pk("FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH"));
     }
 
     #[test]
@@ -593,7 +609,7 @@ mod tests {
     fn parse_obric_v2() {
         let toml = r#"
             [obric-v2]
-            [[obric-v2.swap-v1]]
+            [[obric-v2.swap-v2]]
             market = "BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG"
             second_ref_oracle = "GZsNmWKbqhMYtdSkkvMdEyQF9k5mLmP7tTKYWZjcHVPE"
             third_ref_oracle = "6YawcNeZ74tRyCv4UfGydYMr7eho7vbUR6ScVffxKAb3"
@@ -607,11 +623,11 @@ mod tests {
         let cfg: Cfg = toml::from_str(toml).unwrap();
         let obric = cfg.obric_v2.unwrap();
 
-        assert_eq!(obric.swap_v1.len(), 1);
+        assert_eq!(obric.swap_v2.len(), 1);
         let mk = pk("BWBHrYqfcjAh5dSiRwzPnY4656cApXVXmkeDmAfwBKQG");
-        assert!(obric.swap_v1.contains_key(&mk));
+        assert!(obric.swap_v2.contains_key(&mk));
 
-        let entry = &obric.swap_v1[&mk];
+        let entry = &obric.swap_v2[&mk];
         assert_eq!(entry.reserve_x, pk("C3tPQ8TRcHybnPpR8KMASUVD3PukQRRHEsLwxorJMhgm"));
         assert_eq!(entry.ref_oracle, entry.x_price_feed);
     }

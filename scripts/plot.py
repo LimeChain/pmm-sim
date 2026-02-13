@@ -62,16 +62,26 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    valid_files = []
     for f in args.files:
         if not os.path.exists(f):
             print(f"File not found: {f}")
             exit(1)
+        df = pl.read_parquet(f)
+        if df.is_empty():
+            print(f"WARNING: skipping '{f}' (no records)")
+        else:
+            valid_files.append(f)
+
+    if not valid_files:
+        print("No files with records to plot")
+        exit(0)
 
     if args.type == "all":
-        plot_compute_units(args.files, block=False)
-        plot_exchange_rate(args.files, block=True)
+        plot_compute_units(valid_files, block=False)
+        plot_exchange_rate(valid_files, block=True)
     else:
         if args.type == "rate":
-            plot_exchange_rate(args.files)
+            plot_exchange_rate(valid_files)
         elif args.type == "compute":
-            plot_compute_units(args.files)
+            plot_compute_units(valid_files)

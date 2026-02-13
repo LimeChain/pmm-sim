@@ -8,6 +8,7 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose};
+use indexmap::IndexMap;
 use magnus_shared::Dex;
 use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
@@ -275,7 +276,7 @@ impl Misc {
         Pubkey::from_str(&s).map_err(serde::de::Error::custom)
     }
 
-    pub fn deser_market<'de, D, T>(deserializer: D) -> Result<HashMap<Pubkey, T>, D::Error>
+    pub fn deser_market<'de, D, T>(deserializer: D) -> Result<IndexMap<Pubkey, T>, D::Error>
     where
         D: serde::Deserializer<'de>,
         T: Deserialize<'de> + Keyed,
