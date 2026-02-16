@@ -45,7 +45,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         cfg: Cfg,
         slot: Option<u64>,
     ) -> eyre::Result<Environment<'_, P>> {
-        let mut budget = ComputeBudget::new_with_defaults(false);
+        let mut budget = ComputeBudget::new_with_defaults(false, false);
         budget.compute_unit_limit = consts::COMPUTE_UNITS_LIMIT;
 
         let wallet = Keypair::new();
