@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Display};
 
 use litesvm::{LiteSVM, types::TransactionMetadata};
+use magnus_router_client::types::SwapEvent;
 use magnus_shared::Dex;
 use solana_client::rpc_client::RpcClient;
 use solana_compute_budget::compute_budget::ComputeBudget;
@@ -222,24 +223,39 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         self.svm.send_transaction(tx)
     }
 
-    /// Extracts the output amount from a swap transaction's logs.
+    /// Extracts all SwapEvents from a swap transaction's logs.
     ///
-    /// Parses the `SwapEvent` log emitted by the router program to find the
-    /// `amount_out` value. Panics if the event is not found in the logs.
-    pub fn get_event_amount_out(&self, metadata: &TransactionMetadata) -> u64 {
-        let amount_out: u64 = metadata
+    /// Parses the `SwapEvent` logs emitted by the router program to find
+    /// `dex`, `amount_in`, and `amount_out` values. Panics if no events are found.
+    pub fn get_swap_events(&self, metadata: &TransactionMetadata) -> Vec<SwapEvent> {
+        let events: Vec<SwapEvent> = metadata
             .logs
             .iter()
-            .find_map(|log| {
-                if log.contains("SwapEvent") {
-                    log.split("amount_out: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
-                } else {
-                    None
+            .filter_map(|log| {
+                if !log.contains("SwapEvent") {
+                    return None;
                 }
+                let dex_str = log.split("dex: ").nth(1)?.split(',').next()?;
+                let dex: Dex = dex_str.to_lowercase().parse().ok()?;
+                let amount_in = log.split("amount_in: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
+                let amount_out = log.split("amount_out: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
+                Some(SwapEvent { dex: dex.into(), amount_in, amount_out })
             })
-            .expect("couldn't find amount_out in logs");
+            .collect();
 
-        amount_out
+        assert!(!events.is_empty(), "couldn't find any SwapEvent in logs");
+        events
+    }
+
+    /// Extracts the final destination balance from a swap transaction's logs.
+    ///
+    /// Parses the `after_destination_balance` value from the router's balance log.
+    pub fn get_amount_out(&self, metadata: &TransactionMetadata) -> u64 {
+        metadata
+            .logs
+            .iter()
+            .find_map(|log| log.split("after_destination_balance: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok())
+            .expect("couldn't find after_destination_balance in logs")
     }
 }
 
@@ -404,5 +420,63 @@ mod tests {
         assert_eq!(loaded.lamports, account.lamports);
         assert_eq!(loaded.data, account.data);
         assert_eq!(loaded.owner, account.owner);
+    }
+
+    fn mock_metadata(logs: Vec<&str>) -> TransactionMetadata {
+        TransactionMetadata { logs: logs.into_iter().map(String::from).collect(), ..Default::default() }
+    }
+
+    #[test]
+    fn test_get_swap_events_parses_all_events() {
+        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let metadata = mock_metadata(vec![
+            "Program data: QMbN6CYIceIFgHWE3wAAAACC1uW4CQAAAA==",
+            "Program log: SwapEvent { dex: HumidiFi, amount_in: 3750000000, amount_out: 41756776066 }",
+            "Program log: CUX1SEkh3HmNqv6zzkXFr6VsxGHa66jt98E3qBtXoEni",
+            "Program log: Dex::Humidifi amount_in: 6000000000, offset: 27",
+            "Program data: QMbN6CYIceIFALygZQEAAADSwRWODwAAAA==",
+            "Program log: SwapEvent { dex: HumidiFi, amount_in: 6000000000, amount_out: 66808299986 }",
+            "Program log: CUX1SEkh3HmNqv6zzkXFr6VsxGHa66jt98E3qBtXoEni",
+        ]);
+
+        let events = env.get_swap_events(&metadata);
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].dex, magnus_router_client::types::Dex::HumidiFi);
+        assert_eq!(events[0].amount_in, 3750000000);
+        assert_eq!(events[0].amount_out, 41756776066);
+        assert_eq!(events[1].dex, magnus_router_client::types::Dex::HumidiFi);
+        assert_eq!(events[1].amount_in, 6000000000);
+        assert_eq!(events[1].amount_out, 66808299986);
+    }
+
+    #[test]
+    #[should_panic(expected = "couldn't find any SwapEvent in logs")]
+    fn test_get_swap_events_panics_when_no_events() {
+        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let metadata = mock_metadata(vec!["Program log: some unrelated log"]);
+
+        env.get_swap_events(&metadata);
+    }
+
+    #[test]
+    fn test_get_amount_out_parses_after_destination_balance() {
+        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let metadata = mock_metadata(vec![
+            "Program log: SwapEvent { dex: HumidiFi, amount_in: 6000000000, amount_out: 66808299986 }",
+            "Program log: after_source_balance: 0, after_destination_balance: 167066576506, source_token_change: 15000000000, \
+             destination_token_change: 167066576506",
+        ]);
+
+        assert_eq!(env.get_amount_out(&metadata), 167066576506);
+    }
+
+    #[test]
+    #[should_panic(expected = "couldn't find after_destination_balance in logs")]
+    fn test_get_amount_out_panics_when_missing() {
+        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let metadata = mock_metadata(vec!["Program log: some unrelated log"]);
+
+        env.get_amount_out(&metadata);
     }
 }

@@ -877,7 +877,7 @@ impl App {
                                 }
                             };
 
-                            let amount_out = env.get_event_amount_out(&res);
+                            let amount_out = env.get_amount_out(&res);
 
                             records.push(BenchmarkRecord {
                                 slot: env.slot.unwrap_or_default(),
@@ -1016,8 +1016,11 @@ impl App {
 
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");
-        let amount_out = env.get_event_amount_out(&res);
+        let amount_out = env.get_amount_out(&res);
 
+        env.get_swap_events(&res).iter().for_each(|event| {
+            info!(?event);
+        });
         info!(
             src_token = %src_token.symbol,
             dst_token = %dst_token.symbol,
