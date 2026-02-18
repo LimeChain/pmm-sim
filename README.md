@@ -28,55 +28,18 @@ Possible modes of execution include:
 - **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
 - **fetch-programs** - Fetch programs for specified PMMs via RPC and save them locally (presumably for later usage).
 
-Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
+Example benchmarked exchange rate & CU usage:
 
-<table>
-  <tr>
-    <th>Market</th>
-    <th>Exchange Rate</th>
-    <th>Compute Units</th>
-  </tr>
-  <tr>
-    <td>HumidiFi</td>
-    <td><img src="./assets/humidifi_rate.png" width="450"></td>
-    <td><img src="./assets/humidifi_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>HumidiFi Swap V2</td>
-    <td><img src="./assets/humidifi-swap-v2_rate.png" width="450"></td>
-    <td><img src="./assets/humidifi-swap-v2_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>HumidiFi Swap V3</td>
-    <td><img src="./assets/humidifi-swap-v3_rate.png" width="450"></td>
-    <td><img src="./assets/humidifi-swap-v3_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>SolFi V2</td>
-    <td><img src="./assets/solfi-v2_rate.png" width="450"></td>
-    <td><img src="./assets/solfi-v2_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>BisonFi</td>
-    <td><img src="./assets/bisonfi_rate.png" width="450"></td>
-    <td><img src="./assets/bisonfi_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>Tessera</td>
-    <td><img src="./assets/tessera_rate.png" width="450"></td>
-    <td><img src="./assets/tessera_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>Obric V2</td>
-    <td><img src="./assets/obric-v2_rate.png" width="450"></td>
-    <td><img src="./assets/obric-v2_cu.png" width="450"></td>
-  </tr>
-  <tr>
-    <td>GoonFi</td>
-    <td><img src="./assets/goonfi_rate.png" width="450"></td>
-    <td><img src="./assets/goonfi_cu.png" width="450"></td>
-  </tr>
-</table>
+| Prop AMM         | Exchange Rate                           | Compute Units                         |
+| ---------------- | --------------------------------------- | ------------------------------------- |
+| HumidiFi         | ![](./assets/humidifi_rate.png)         | ![](./assets/humidifi_cu.png)         |
+| HumidiFi Swap V2 | ![](./assets/humidifi-swap-v2_rate.png) | ![](./assets/humidifi-swap-v2_cu.png) |
+| HumidiFi Swap V3 | ![](./assets/humidifi-swap-v3_rate.png) | ![](./assets/humidifi-swap-v3_cu.png) |
+| SolFi V2         | ![](./assets/solfi-v2_rate.png)         | ![](./assets/solfi-v2_cu.png)         |
+| BisonFi          | ![](./assets/bisonfi_rate.png)          | ![](./assets/bisonfi_cu.png)          |
+| Tessera          | ![](./assets/tessera_rate.png)          | ![](./assets/tessera_cu.png)          |
+| Obric V2         | ![](./assets/obric-v2_rate.png)         | ![](./assets/obric-v2_cu.png)         |
+| GoonFi           | ![](./assets/goonfi_rate.png)           | ![](./assets/goonfi_cu.png)           |
 
 ---
 
