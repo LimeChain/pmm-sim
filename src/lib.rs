@@ -2,7 +2,7 @@
 //!
 //! Simulate and/or Benchmark swaps across *any* of the major Solana Proprietary AMMs, locally, using LiteSVM.
 #![doc = include_str!("../README.md")]
-#![allow(clippy::type_complexity, clippy::result_large_err)]
+#![allow(clippy::type_complexity, clippy::result_large_err, clippy::too_many_arguments)]
 
 pub mod cfg;
 pub mod env;
@@ -810,7 +810,7 @@ impl App {
                                     swap_ix
                                 }
                                 CallType::Direct => {
-                                    app.build_direct_ix(&env, target, market, &src_token, &dst_token, src_ata, dst_ata, amount_in)
+                                    app.build_direct_ix(&env, target, market, src_token, dst_token, src_ata, dst_ata, amount_in)
                                 }
                             };
 
@@ -1251,7 +1251,7 @@ impl App {
         let (src_ata, dst_ata) = (env.wallet_ata(&src_token.addr), env.wallet_ata(&dst_token.addr));
         let (src_before, dst_before) = (env.token_balance(&src_token.addr), env.token_balance(&dst_token.addr));
 
-        let ix = self.build_direct_ix(&env, pmm, market, &src_token, &dst_token, src_ata, dst_ata, amount_in);
+        let ix = self.build_direct_ix(&env, pmm, market, src_token, dst_token, src_ata, dst_ata, amount_in);
         let tx = Transaction::new_signed_with_payer(&[ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");
 
