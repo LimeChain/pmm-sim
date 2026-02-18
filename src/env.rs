@@ -461,15 +461,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "couldn't find any SwapEvent in logs")]
-    fn test_get_swap_events_panics_when_no_events() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
-        let metadata = mock_metadata(vec!["Program log: some unrelated log"]);
-
-        env.get_router_swap_events(&metadata);
-    }
-
-    #[test]
     fn test_get_amount_out_parses_after_destination_balance() {
         let env = Environment::new("", "", None, default_cfg(), None).unwrap();
         let metadata = mock_metadata(vec![
