@@ -26,11 +26,16 @@ Possible modes of execution include:
 
 Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
-![exchange_rate](./assets/397549538_exchange_rate.png)
-_Figure 1: Exchange rate for benchmarked swaps_
-
-![cu_usage](./assets/397549538_compute_units.png)
-_Figure 2: Compute unit usage_
+<table>
+  <tr>
+    <td><img src="./assets/397549538_exchange_rate.png" width="400"></td>
+    <td><img src="./assets/397549538_compute_units.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><em>Figure 1: Exchange rate for benchmarked swaps</em></td>
+    <td><em>Figure 2: Compute unit usage</em></td>
+  </tr>
+</table>
 
 ---
 

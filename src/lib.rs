@@ -260,6 +260,14 @@ pub enum Cmd {
 
         #[arg(long, env = "RANGE", default_value = "1.0,100.0,1.0", value_parser = CliArgs::parse_range, help = "Comma-separated step parameters: start, end, step")]
         range: [f64; 3],
+
+        #[arg(
+            long,
+            env = "CALL_TYPE",
+            default_value = "cpi",
+            help = "Swap call type: cpi (through router) or direct (standalone PMM instruction)"
+        )]
+        call_type: CallType,
     },
 
     #[command(about = "Initialize an environment for a single PMM and execute a direct swap.")]
@@ -270,14 +278,8 @@ pub enum Cmd {
         #[arg(long, help = "The Prop AMM to use (optionally with market hint, e.g. humidifi_Fk)")]
         pmm: PMMTarget,
 
-        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade (ignored when --range is set)")]
+        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade")]
         amount_in: f64,
-
-        #[arg(long, env = "RANGE", value_parser = CliArgs::parse_range, help = "Comma-separated range: start,end,step — benchmarks across the range and exports a parquet dataset")]
-        range: Option<[f64; 3]>,
-
-        #[arg(long, env = "DATASETS_PATH", default_value = consts::DATASETS_PATH, help = "Directory to dump the benchmark parquet files into")]
-        datasets_path: String,
     },
 
     #[command(
@@ -389,6 +391,13 @@ impl std::fmt::Display for Aggregator {
             Aggregator::Titan => write!(f, "titan"),
         }
     }
+}
+
+#[derive(clap::ValueEnum, Clone, Debug, Default)]
+pub enum CallType {
+    #[default]
+    Cpi,
+    Direct,
 }
 
 /// A helper struct to construct swap instructions with the required accounts
@@ -700,7 +709,7 @@ impl App {
     }
 
     pub fn benchmark(&self) -> eyre::Result<()> {
-        let Cmd::Benchmark { common, datasets_path, pmms, range, spoof } = &self.args.cmd else { unreachable!() };
+        let Cmd::Benchmark { common, datasets_path, pmms, range, spoof, call_type } = &self.args.cmd else { unreachable!() };
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
@@ -730,26 +739,27 @@ impl App {
                 .iter()
                 .zip(pmms.iter())
                 .map(|(&(pmm, market), target)| {
-                    let (cfg, multi, mints) = (&self.cfg, &multi, &mints);
+                    let (app, cfg, multi, mints) = (&self, &self.cfg, &multi, &mints);
                     let rpc_client = &rpc_client;
                     let pmm_accs = accs_map.get(&pmm).cloned().unwrap_or_default();
                     let benchmark = benchmark.clone();
                     let market_str = market.to_string();
 
                     s.spawn(move || -> eyre::Result<()> {
+                        let spoof_for_programs = if matches!(call_type, CallType::Direct) { None } else { *spoof };
+
                         // start up the progress bar only when all the spawned threads
                         // have finished bootstrapping so there's no CLI progress bar race cond
-                        let (mut env, src_ata, dst_ata) = multi.suspend(|| -> eyre::Result<_> {
-                            let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
-                            env.get_and_load_programs(&[pmm], common.jit_programs, *spoof, Some(rpc_client))?.setup_wallet(
-                                &src_token.addr,
-                                benchmark.range_end(),
-                                consts::AIRDROP_AMOUNT,
-                            )?;
+                        let (mut env, src_ata, dst_ata) =
+                            multi.suspend(|| -> eyre::Result<_> {
+                                let mut env =
+                                    Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
+                                env.get_and_load_programs(&[pmm], common.jit_programs, spoof_for_programs, Some(rpc_client))?
+                                    .setup_wallet(&src_token.addr, benchmark.range_end(), consts::AIRDROP_AMOUNT)?;
 
-                            let (src_ata, dst_ata) = (env.wallet_ata(&src_token.addr), env.wallet_ata(&dst_token.addr));
-                            Ok((env, src_ata, dst_ata))
-                        })?;
+                                let (src_ata, dst_ata) = (env.wallet_ata(&src_token.addr), env.wallet_ata(&dst_token.addr));
+                                Ok((env, src_ata, dst_ata))
+                            })?;
 
                         let pb = multi.add(ProgressBar::new(benchmark.range_count()));
                         pb.set_style(
@@ -765,38 +775,47 @@ impl App {
                             env.reset_wallet(&src_token.addr, amount_in)?;
                             env.set_accounts(&pmm_accs)?;
 
-                            let mut swap_builder = SwapBuilder::new()
-                                .payer(env.wallet_pubkey())
-                                .source_token_account(src_ata)
-                                .destination_token_account(dst_ata)
-                                .source_mint(src_token.addr)
-                                .destination_mint(dst_token.addr)
-                                .amount_in(amount_in)
-                                .expect_amount_out(1)
-                                .min_return(1)
-                                .amounts(vec![amount_in])
-                                .routes(routes.clone())
-                                .order_id(Misc::gen_order_id())
-                                .clone();
+                            let ix = match call_type {
+                                CallType::Cpi => {
+                                    let mut swap_builder = SwapBuilder::new()
+                                        .payer(env.wallet_pubkey())
+                                        .source_token_account(src_ata)
+                                        .destination_token_account(dst_ata)
+                                        .source_mint(src_token.addr)
+                                        .destination_mint(dst_token.addr)
+                                        .amount_in(amount_in)
+                                        .expect_amount_out(1)
+                                        .min_return(1)
+                                        .amounts(vec![amount_in])
+                                        .routes(routes.clone())
+                                        .order_id(Misc::gen_order_id())
+                                        .clone();
 
-                            let mut swap_ix = ConstructSwap {
-                                cfg: cfg.clone(),
-                                builder: &mut swap_builder,
-                                payer: env.wallet_pubkey(),
-                                src_ta: src_ata,
-                                dst_ta: dst_ata,
-                                src_mint: src_token.addr,
-                                dst_mint: dst_token.addr,
-                            }
-                            .attach_pmms_accs(&[(pmm, market)])
-                            .instruction();
+                                    let mut swap_ix = ConstructSwap {
+                                        cfg: cfg.clone(),
+                                        builder: &mut swap_builder,
+                                        payer: env.wallet_pubkey(),
+                                        src_ta: src_ata,
+                                        dst_ta: dst_ata,
+                                        src_mint: src_token.addr,
+                                        dst_mint: dst_token.addr,
+                                    }
+                                    .attach_pmms_accs(&[(pmm, market)])
+                                    .instruction();
 
-                            if let Some(aggr) = spoof {
-                                swap_ix.program_id = aggr.program_id();
-                            }
+                                    if let Some(aggr) = spoof {
+                                        swap_ix.program_id = aggr.program_id();
+                                    }
+
+                                    swap_ix
+                                }
+                                CallType::Direct => {
+                                    app.build_direct_ix(&env, target, market, &src_token, &dst_token, src_ata, dst_ata, amount_in)
+                                }
+                            };
 
                             let tx = Transaction::new_signed_with_payer(
-                                &[swap_ix],
+                                &[ix],
                                 Some(&env.wallet_pubkey()),
                                 &[&env.wallet],
                                 env.latest_blockhash(),
@@ -812,7 +831,11 @@ impl App {
                                 }
                             };
 
-                            let amount_out = env.get_amount_out(&res);
+                            let amount_out = match call_type {
+                                CallType::Cpi => env.get_amount_out(&res),
+                                CallType::Direct => env.token_balance(&dst_token.addr),
+                            };
+
                             records.push(BenchmarkRecord {
                                 slot: env.slot.unwrap_or_default(),
                                 pmm: pmm.to_string(),
@@ -832,7 +855,10 @@ impl App {
 
                         (warn_cnt != 0).then(|| pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt)));
 
-                        let via = spoof.map(|a| a.to_string()).unwrap_or_else(|| "magnus".to_string());
+                        let via = match call_type {
+                            CallType::Cpi => spoof.map(|a| a.to_string()).unwrap_or_else(|| "magnus".to_string()),
+                            CallType::Direct => "direct".to_string(),
+                        };
                         let filename = format!(
                             "{}/{}_{}_{}_{}_{}",
                             datasets_path,
@@ -1207,125 +1233,45 @@ impl App {
     }
 
     pub fn direct(&self) -> eyre::Result<()> {
-        let Cmd::Direct { common, pmm, amount_in, range, datasets_path } = &self.args.cmd else { unreachable!() };
+        let Cmd::Direct { common, pmm, amount_in } = &self.args.cmd else { unreachable!() };
 
         let market = pmm.resolve(&self.cfg).unwrap_or_else(|| panic!("{} not configured", pmm));
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
         let (src_token, dst_token) = (self.cfg.get_token(&common.src_token)?, self.cfg.get_token(&common.dst_token)?);
         let mints = vec![(src_token.addr, src_token.dec), (dst_token.addr, dst_token.dec)];
+        let amount_in = Misc::to_raw(*amount_in, src_token.dec);
 
-        if let Some(range) = range {
-            let benchmark = Benchmark::new().range_from_human(*range, src_token.dec);
+        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
+        env.get_and_load_programs(&[pmm.dex], common.jit_programs, None, Some(&rpc_client))?
+            .get_and_load_accounts(&[pmm.dex], common.jit_accounts, Some(&rpc_client))?
+            .setup_wallet(&src_token.addr, amount_in, consts::AIRDROP_AMOUNT)?;
+        info!(?env);
 
-            let (slot, accs): (Option<u64>, Vec<(Pubkey, Account)>) = if common.jit_accounts {
-                let (s, m) = Misc::fetch_accounts(&[pmm.dex], &rpc_client, &self.cfg)?;
-                let flat = m.into_iter().flat_map(|(_, markets)| markets.into_iter().flat_map(|(_, accs)| accs)).collect();
-                (Some(s), flat)
-            } else {
-                let (s, m) = Misc::read_accounts_from_disk(&[pmm.dex], &common.accounts_path)?;
-                let flat = m.into_iter().flat_map(|(_, accs)| accs).collect();
-                (s, flat)
-            };
+        let (src_ata, dst_ata) = (env.wallet_ata(&src_token.addr), env.wallet_ata(&dst_token.addr));
+        let (src_before, dst_before) = (env.token_balance(&src_token.addr), env.token_balance(&dst_token.addr));
 
-            let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), slot)?;
-            env.get_and_load_programs(&[pmm.dex], common.jit_programs, None, Some(&rpc_client))?;
-            env.set_accounts(&accs)?;
-            env.setup_wallet(&src_token.addr, benchmark.range_end(), consts::AIRDROP_AMOUNT)?;
+        let ix = self.build_direct_ix(&env, pmm, market, &src_token, &dst_token, src_ata, dst_ata, amount_in);
+        let tx = Transaction::new_signed_with_payer(&[ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
+        let res = env.send_transaction(tx).expect("failed to exec tx");
 
-            let src_ata = env.wallet_ata(&src_token.addr);
-            let dst_ata = env.wallet_ata(&dst_token.addr);
+        let (src_after, dst_after) = (env.token_balance(&src_token.addr), env.token_balance(&dst_token.addr));
 
-            let pb = ProgressBar::new(benchmark.range_count());
-            pb.set_style(ProgressStyle::default_bar().template(consts::PROGRESS_TEMPLATE)?.progress_chars(consts::PROGRESS_CHARS));
-            pb.set_prefix(format!("{}", pmm));
+        let swap_events = env.get_router_swap_events(&res);
+        swap_events.iter().for_each(|event| {
+            info!(?event);
+        });
 
-            let (mut records, mut warn_cnt) = (vec![], 0u64);
-
-            for amount_in in benchmark.range_iter() {
-                env.reset_wallet(&src_token.addr, amount_in)?;
-                env.set_accounts(&accs)?;
-
-                let ix = self.build_direct_ix(&env, pmm, market, &src_token, &dst_token, src_ata, dst_ata, amount_in);
-                let tx = Transaction::new_signed_with_payer(&[ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
-
-                let res = match env.send_transaction(tx) {
-                    Ok(res) => res,
-                    Err(e) => {
-                        if warn_cnt == 0 {
-                            pb.println(format!("[WARN] {}: {:?}", pmm, e));
-                        }
-                        warn_cnt += 1;
-                        pb.inc(1);
-                        continue;
-                    }
-                };
-
-                let amount_out = env.token_balance(&dst_token.addr);
-                records.push(BenchmarkRecord {
-                    slot: env.slot.unwrap_or_default(),
-                    pmm: pmm.dex.to_string(),
-                    market: market.to_string(),
-                    src_token: src_token.symbol.clone(),
-                    dst_token: dst_token.symbol.clone(),
-                    amount_in: Misc::to_human(amount_in, src_token.dec),
-                    amount_out: Misc::to_human(amount_out, dst_token.dec),
-                    compute_units: res.compute_units_consumed,
-                });
-
-                pb.set_message(format!("in: {:.2}", Misc::to_human(amount_in, src_token.dec)));
-                pb.inc(1);
-            }
-
-            if warn_cnt != 0 {
-                pb.println(format!("[WARN] {}: {} total failures", pmm, warn_cnt));
-            }
-
-            let filename = format!("{}/{}_direct_{}_{}_{}", datasets_path, env.slot.unwrap_or_default(), pmm.dex, market, benchmark.time());
-            benchmark.records(records.clone()).save_path(&filename).save().is_ok().then(|| {
-                pb.println(format!("[{}] saved {} records to {}", pmm, records.len(), filename));
-            });
-
-            pb.finish();
-        } else {
-            let amount_in = Misc::to_raw(*amount_in, src_token.dec);
-
-            let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
-            env.get_and_load_programs(&[pmm.dex], common.jit_programs, None, Some(&rpc_client))?
-                .get_and_load_accounts(&[pmm.dex], common.jit_accounts, Some(&rpc_client))?
-                .setup_wallet(&src_token.addr, amount_in, consts::AIRDROP_AMOUNT)?;
-            info!(?env);
-
-            let src_ata = env.wallet_ata(&src_token.addr);
-            let dst_ata = env.wallet_ata(&dst_token.addr);
-
-            let ix = self.build_direct_ix(&env, pmm, market, &src_token, &dst_token, src_ata, dst_ata, amount_in);
-
-            let src_before = env.token_balance(&src_token.addr);
-            let dst_before = env.token_balance(&dst_token.addr);
-
-            let tx = Transaction::new_signed_with_payer(&[ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
-            let res = env.send_transaction(tx).expect("failed to exec tx");
-
-            let src_after = env.token_balance(&src_token.addr);
-            let dst_after = env.token_balance(&dst_token.addr);
-
-            let swap_events = env.get_router_swap_events(&res);
-            for event in &swap_events {
-                info!(?event);
-            }
-
-            info!(
-                pmm = %pmm,
-                market = %market,
-                src_token = %src_token.symbol,
-                dst_token = %dst_token.symbol,
-                amount_in = ?Misc::to_human(amount_in, src_token.dec),
-                src_balance = ?format!("{:.6} -> {:.6}", Misc::to_human(src_before, src_token.dec), Misc::to_human(src_after, src_token.dec)),
-                dst_balance = ?format!("{:.6} -> {:.6}", Misc::to_human(dst_before, dst_token.dec), Misc::to_human(dst_after, dst_token.dec)),
-                cu = res.compute_units_consumed,
-            );
-        }
+        info!(
+            pmm = %pmm,
+            market = %market,
+            src_token = %src_token.symbol,
+            dst_token = %dst_token.symbol,
+            amount_in = ?Misc::to_human(amount_in, src_token.dec),
+            src_balance = ?format!("{:.6} -> {:.6}", Misc::to_human(src_before, src_token.dec), Misc::to_human(src_after, src_token.dec)),
+            dst_balance = ?format!("{:.6} -> {:.6}", Misc::to_human(dst_before, dst_token.dec), Misc::to_human(dst_after, dst_token.dec)),
+            cu = res.compute_units_consumed,
+        );
 
         Ok(())
     }
