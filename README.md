@@ -28,7 +28,7 @@ Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
 | Exchange rate for benchmarked swaps       | Compute unit usage                        |
 | ----------------------------------------- | ----------------------------------------- |
-| ![](./assets/397549538_exchange_rate.png) | ![](./assets/397549538_exchange_rate.png) |
+| ![](./assets/397549538_exchange_rate.png) | ![](./assets/397549538_compute_units.png) |
 
 ---
 
