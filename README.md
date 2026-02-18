@@ -26,10 +26,9 @@ Possible modes of execution include:
 
 Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
-|                                     Exchange Rate                                      |                             Compute Units                             |
-| :------------------------------------------------------------------------------------: | :-------------------------------------------------------------------: |
-| ![Figure 1: Exchange rate for benchmarked swaps](./assets/397549538_exchange_rate.png) | ![Figure 2: Compute unit usage](./assets/397549538_compute_units.png) |
-|                    _Figure 1: Exchange rate for benchmarked swaps_                     |                    _Figure 2: Compute unit usage_                     |
+| Exchange rate for benchmarked swaps       | Compute unit usage                        |
+| ----------------------------------------- | ----------------------------------------- |
+| ![](./assets/397549538_exchange_rate.png) | ![](./assets/397549538_exchange_rate.png) |
 
 ---
 
