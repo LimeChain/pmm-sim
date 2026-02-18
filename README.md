@@ -62,7 +62,7 @@ cargo build --release
   --src-token=USDC --dst-token=WSOL
 ```
 
-#### Swap 15,345 USDT for WSOL using Goonfi, spoofed as Jupiter.
+#### Swap 15,345 USDT for WSOL using GoonFi, spoofed as Jupiter.
 
 ```
 ./target/release/pmm-sim single --amount-in=15345 --pmms=goonfi --weights=100 --src-token=usdc --dst-token=wsol --jit-accounts=false --spoof=jupiter
