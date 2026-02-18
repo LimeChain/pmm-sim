@@ -1257,11 +1257,6 @@ impl App {
 
         let (src_after, dst_after) = (env.token_balance(&src_token.addr), env.token_balance(&dst_token.addr));
 
-        let swap_events = env.get_router_swap_events(&res);
-        swap_events.iter().for_each(|event| {
-            info!(?event);
-        });
-
         info!(
             pmm = %pmm,
             market = %market,

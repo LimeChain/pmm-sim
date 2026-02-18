@@ -1,7 +1,7 @@
 {
   "account": {
     "data": [
-      "CVWqM8wP8GYaIEYkiiLdRC7MfOgAM8xm/l3vVZwBAABxdBHuIt2IRAgwKRfMM2aZAQARIjNEVWZ3iJmqu8zd7vfqsCszzGaZEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vAMSIDeje7pe9NvntwcpmSG",
+      "CVWqM8wP8GYZ3j4kiiLdRPIHQugAM8xmsdkEcZwBAABxdBHuIt2IRET5FxfMM2aZAQARIjNEVWZ3iJmqu8zd7k05TCszzGaZEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vASNFZ4mrze8BI0VniavN7wEjRWeJq83vAMSIDeje7pe9NvntwcpmSG",
       "base64"
     ],
     "executable": false,
@@ -10,5 +10,5 @@
     "rentEpoch": 18446744073709551615
   },
   "pubkey": "CyCUgmaCYUZxbux3J2svDzxSryVFMtZNPrnMKS41nc4G",
-  "slot": 399939989
+  "slot": 401101387
 }

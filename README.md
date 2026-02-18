@@ -1,10 +1,10 @@
 # pmm-sim
 
-Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup relies on [Litesvm](https://crates.io/crates/litesvm) for local, consistent and expedited execution. Additionally, since some proprietary AMMs block swaps originating from direct offchain calls, we rely on a custom router program - [magnus-router](https://github.com/LimeChain/magnus/tree/master/crates/router) - to facilitate the swap execution.
+Simulation & Benchmark environment for Solana's Proprietary AMMs. The setup relies on [Litesvm](https://crates.io/crates/litesvm) for local, consistent and expedited execution.
 
 Supported Prop AMMs:
 
-- [x] HumidiFi
+- [x] HumidiFi (swap v1/v2/v3)
 - [x] SolFiV2
 - [x] ObricV2
 - [x] ZeroFi
@@ -12,15 +12,19 @@ Supported Prop AMMs:
 - [x] GoonFi
 - [x] BisonFi
 
-The swaps can be done either with the local static accounts/programs stored at [./cfg/](./cfg/) or with the current live ones by fetching them on-the-go. By default all swaps & benchmark simulations are done with real-time accounts/programs.
+Swaps and benchmarks can be done through direct offchain calls, or alternatively through CPI calls from an onchain router - [magnus-router](https://github.com/LimeChain/magnus/tree/master/crates/router). Additionally, Router CPI calls can be spoofed as one of the following aggregators: Jupiter, Okx, Dflow or Titan. Some Prop AMMs tend to provide different — preferential — rates for whitelisted set of addresses. Depending on who's the source of CPI, you might get different rates.
 
-The markets for each Prop AMM are specified in [./cfg/setup.toml](./cfg/setup.toml).
+The swaps and benchmarks can be done with the local static accounts/programs stored at [./cfg/](./cfg/) or with the current live ones by fetching them on-the-go. By default all swaps & benchmark simulations are done with real-time accounts/programs. The markets for each Prop AMM are specified in [./cfg/setup.toml](./cfg/setup.toml).
+
+![all](./assets/all_rate.png)
+_Figure 2: Exchange rates for WSOL -> USDC at slot `401101387`_
 
 Possible modes of execution include:
 
 - **single** - Run a single swap route across one or more Prop AMMs with specified weights. The route can go through an arbitrary combination of Prop AMMs.
 - **multi** - Execute swaps across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
-- **benchmark** - Benchmark swaps for any of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and range size. Benchmark data can be visualised with [plot.py](./scripts/plot.py).
+- **direct** - Execute a direct, non-cpi swap with some of the Prop AMMs.
+- **benchmark** - Benchmark swaps for any of the implemented Prop AMMs by specifying, optionally, spoofing, the src/dst tokens and range size. Benchmark data can be visualised with [plot.py](./scripts/plot.py).
 - **fetch-accounts** - Fetch accounts for specified PMMs via RPC and save them locally (presumably for later usage).
 - **fetch-programs** - Fetch programs for specified PMMs via RPC and save them locally (presumably for later usage).
 
@@ -28,24 +32,55 @@ Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
 <table>
   <tr>
-    <td><img src="./assets/397549538_exchange_rate.png" width="400"></td>
-    <td><img src="./assets/397549538_compute_units.png" width="400"></td>
+    <th>Market</th>
+    <th>Exchange Rate</th>
+    <th>Compute Units</th>
   </tr>
   <tr>
-    <td><em>Figure 1: Exchange rate for benchmarked swaps</em></td>
-    <td><em>Figure 2: Compute unit usage</em></td>
+    <td>HumidiFi</td>
+    <td><img src="./assets/humidifi_rate.png" width="450"></td>
+    <td><img src="./assets/humidifi_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>HumidiFi Swap V2</td>
+    <td><img src="./assets/humidifi-swap-v2_rate.png" width="450"></td>
+    <td><img src="./assets/humidifi-swap-v2_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>HumidiFi Swap V3</td>
+    <td><img src="./assets/humidifi-swap-v3_rate.png" width="450"></td>
+    <td><img src="./assets/humidifi-swap-v3_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>SolFi V2</td>
+    <td><img src="./assets/solfi-v2_rate.png" width="450"></td>
+    <td><img src="./assets/solfi-v2_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>BisonFi</td>
+    <td><img src="./assets/bisonfi_rate.png" width="450"></td>
+    <td><img src="./assets/bisonfi_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>Tessera</td>
+    <td><img src="./assets/tessera_rate.png" width="450"></td>
+    <td><img src="./assets/tessera_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>Obric V2</td>
+    <td><img src="./assets/obric-v2_rate.png" width="450"></td>
+    <td><img src="./assets/obric-v2_cu.png" width="450"></td>
+  </tr>
+  <tr>
+    <td>GoonFi</td>
+    <td><img src="./assets/goonfi_rate.png" width="450"></td>
+    <td><img src="./assets/goonfi_cu.png" width="450"></td>
   </tr>
 </table>
 
 ---
 
-Some Prop AMMs tend to provide different — preferential — rates for whitelisted set of addresses. Depending on who's the source of CPI, you might get different quotes - You can optionally simulate swaps / benchmarks spoofed as one of: Jupiter, OkxLabs, DFlow or Titan.
-
-![solfi_v2_spoof_rates](./assets/397549319_solfiv2-spoof-rates.png)
-_Figure 3: SolFiV2's rates depending on the source of CPI_
-
-![tessera_spoof_rates](./assets/397549319_tessera-spoof-rates.png)
-_Figure 4: Tessera's rates depending on the source of CPI_
+To explicitly specify the market the operation should execute against, for a particular prop AMM, suffix the Prop AMM's name with a substring of the address of the market. If no market is specified explicitly, we'll default to the first one define in [./cfg/setup.toml](./cfg/setup.toml)
 
 ## Examples
 
@@ -57,24 +92,30 @@ cargo build --release
 
 ### Single-route swaps
 
-##### Swap 15K USDC for WSOL using HumidiFi.
+##### Swap 15K USDC for WSOL using HumidiFi's swap-v1.
 
 ```
 ./target/release/pmm-sim single --amount-in=15000 --pmms=humidifi --weights=100 \
   --src-token=USDC --dst-token=WSOL
 ```
 
-##### Swap 69K USDC for WSOL using HumidiFi and BisonFi, in one route, split 25%,75% accordingly.
+#### Swap 15,345 USDT for WSOL using Goonfi, spoofed as Jupiter.
 
 ```
-./target/release/pmm-sim single --amount-in=69000 --pmms=humidifi,bisonfi --weights=25,75 \
+./target/release/pmm-sim single --amount-in=15345 --pmms=goonfi --weights=100 --src-token=usdc --dst-token=wsol --jit-accounts=false --spoof=jupiter
+```
+
+##### Swap 69K USDC for WSOL using HumidiFi (swap-v2 instruction on the [Fk market](https://solscan.io/account/FksffEqnBRixYGR791Qw2MgdU7zNCpHVFYBL4Fa4qVuH)) and BisonFi, in one route, split 25%,75% accordingly.
+
+```
+./target/release/pmm-sim single --amount-in=69000 --pmms=humidifi-swap-v2_Fk,bisonfi --weights=25,75 \
   --src-token=USDC --dst-token=WSOL
 ```
 
-##### Swap 375 WSOL for USDC using Tessera and SolFiV2, in one route, split evenly - 187,5 WSOL per Prop AMM, spoofed as DFlow.
+##### Swap 375 WSOL for USDC using Tessera and SolFiV2's [65Z market](https://solscan.io/account/65ZHSArs5XxPseKQbB1B4r16vDxMWnCxHMzogDAqiDUc) , in one route, split evenly - 187,5 WSOL per Prop AMM, spoofed as DFlow.
 
 ```
-./target/release/pmm-sim single --spoof=dflow --amount-in=375 --pmms=tessera,solfi-v2 \
+./target/release/pmm-sim single --spoof=dflow --amount-in=375 --pmms=tessera,solfi-v2_65Z \
   --weights=50,50 --src-token=WSOL --dst-token=USDC
 ```
 
@@ -103,12 +144,24 @@ cargo build --release
   --weights="[[92,8],[100]]"
 ```
 
-##### Execute two routes, the first swapping 150,000 USDC for WSOL using HumidiFi and SolFiV2 (split 25%/75%), the second swapping 1000 USDC for WSOL using GoonFi.
+##### Execute two routes, the first swapping 150,000 USDC for WSOL using HumidiFi and SolFiV2 (split 25%/75%), the second swapping 1000 USDC for WSOL using BisonFi.
 
 ```
-RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 \
-  --pmms="[[humidifi,solfi-v2],[goonfi]]" --weights="[[25,75],[100]]" \
-  --src-token=USDC --dst-token=WSOL --jit-accounts=false --jit-programs=false
+RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 --pmms="[[humidifi,solfi-v2],[bisonfi]]" --weights="[[25,75],[100]]" --src-token=USDC --dst-token=WSOL
+```
+
+### Direct calls
+
+#### Execute a direct offchain call towards HumidiFi's swap-v3 instruction, swapping 350 WSOL for USDC
+
+```
+RUST_LOG=debug ./target/release/pmm-sim direct --pmm=humidifi-swap-v3 --amount-in=350 --src-token=WSOL --dst-token=USDC
+```
+
+#### Execute a direct offchain call towards BisonFi's [FC9 market](https://solscan.io/token/C3DwDjT17gDvvCYC2nsdGHxDHVmQRdhKfpAdqQ29pump), swapping 350K USDT for WSOL
+
+```
+/target/release/pmm-sim direct --pmm=bisonfi_FC9 --amount-in=350000 --src-token=USDT --dst-token=WSOL
 ```
 
 ### Benchmark swaps
@@ -177,7 +230,7 @@ All datasets are saved as `parquet` and available at [datasets](./datasets). To 
 
 ```sh
 duckdb -csv \
-    -c "SELECT * FROM 'datasets/389129965_goonfi_4uWuh9fC7rrZKrN8ZdJf69MN1e2S7FPpMqcsyY1aof6K_20251225-212154.parquet'" \
+    -c "SELECT * FROM 'datasets/datasets/401101387_magnus_bisonfi_51FQwjrvo8J8zXUaKyAznJ5NYpoiTCuqAqCu3HAMB9NZ_20260218-205826.parquet'" \
     | column -t -s ,
 ```
 
@@ -189,7 +242,7 @@ Programs are by default loaded (saved) from (at) [cfg/programs](./cfg/programs).
 
 Datasets are by default loaded (saved) from (at) [datasets](./datasets). Tweaking the source/destination is possible via `--datasets-path` or `DATASETS_PATH` env variable.
 
-The supported tokens are defined in [cfg/setup.toml](./cfg/setup.toml) under `[[tokens]]` entries.
+The supported tokens are defined in [cfg/setup.toml](./cfg/setup.toml) under `[[tokens]]` entries. The markets are defined in [cfg/setup.toml](./cfg/setup.toml) under the corresponding PMM.
 
 ---
 
@@ -197,17 +250,17 @@ Check out the CLI subcommands for additional clues (i.e `pmm-sim single --help`)
 
 ```
 $ pmm-sim --help
-
 Simulation environment for Solana's Proprietary AMMs.
 Simulate swaps and Benchmark performance across *any* of the major Solana Prop AMMs.
 
 Usage: pmm-sim <COMMAND>
 
 Commands:
-  single          Run a single swap route across one or more Prop AMMs with specified weights.
-  multi           Execute multiple swap routes across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
-  benchmark       Benchmark swaps for any one of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and step size
+  direct          Initialize an environment for a single PMM and execute a direct swap.
   fetch-accounts  Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).
+  router-single   Run a single swap route across one or more Prop AMMs with specified weights.
+  router-multi    Execute multiple swap routes across nested Prop AMM routes. Each inner list represents a single route, each route possibly going through multiple Prop AMMs.
+  benchmark       Benchmark swaps for any one of the implemented Prop AMMs by specifying, optionally, the accounts, src/dst tokens and step size
   fetch-programs  Fetch programs from the specified Pmms via RPC and save them locally (presumably for later usage).
   help            Print this message or the help of the given subcommand(s)
 

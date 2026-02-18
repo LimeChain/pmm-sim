@@ -1,0 +1,14 @@
+{
+  "account": {
+    "data": [
+      "AQAAAF97VMvuIvkXYWb+RRRZtiAZp/kHXsaJaGywGUcUVrFlT7a96d9cAwAGAQEAAABpABO3JyzZq1lqrNeYIqP0v/TOjpRY5+Ltw3RArhK21A==",
+      "base64"
+    ],
+    "executable": false,
+    "lamports": 5098490952,
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "rentEpoch": 18446744073709551615
+  },
+  "pubkey": "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
+  "slot": 401101387
+}
