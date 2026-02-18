@@ -80,7 +80,7 @@ Exchange rate & CU plots for benchmarked swaps at slot `397549538`:
 
 ---
 
-To explicitly specify the market the operation should execute against, for a particular prop AMM, suffix the Prop AMM's name with a substring of the address of the market. If no market is specified explicitly, we'll default to the first one define in [./cfg/setup.toml](./cfg/setup.toml)
+To explicitly specify the market the operation should execute against, for a particular prop AMM, suffix the Prop AMM's name with a substring of the address of the market. If no market is specified explicitly, we'll default to the first one defined in [./cfg/setup.toml](./cfg/setup.toml).
 
 ## Examples
 
