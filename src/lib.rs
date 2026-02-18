@@ -148,6 +148,45 @@ pub struct CommonArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum Cmd {
+    #[command(about = "Initialize an environment for a single PMM and execute a direct swap.")]
+    Direct {
+        #[command(flatten)]
+        common: CommonArgs,
+
+        #[arg(long, help = "The Prop AMM to use (optionally with market hint, e.g. humidifi_Fk)")]
+        pmm: PMMTarget,
+
+        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade")]
+        amount_in: f64,
+    },
+
+    #[command(
+        about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).",
+        after_help = "Examples:
+  pmm-sim fetch-accounts --pmms=humidifi
+  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2
+  pmm-sim \
+                      fetch-accounts --pmms=humidifi --http-url=https://my-rpc.com"
+    )]
+    FetchAccounts {
+        #[arg(long, env = "HTTP_URL", default_value = "https://api.mainnet.solana.com")]
+        http_url: SecretString,
+
+        #[arg(long, env = "SETUP_PATH", default_value = consts::SETUP_PATH, help = "Path to the setup configuration file")]
+        setup_path: String,
+
+        #[arg(long, env = "ACCOUNTS_PATH", default_value = consts::ACCOUNTS_PATH, help = "Directory to save fetched accounts")]
+        accounts_path: String,
+
+        #[arg(
+            long,
+            value_delimiter = ',',
+            default_values_t = CliArgs::default_pmm(),
+            help = "Comma-separated list of Prop AMMs to fetch accounts for"
+        )]
+        pmms: Vec<PMMTarget>,
+    },
+
     #[command(
         alias = "single",
         about = "Run a single swap route across one or more Prop AMMs with specified weights.",
@@ -268,45 +307,6 @@ pub enum Cmd {
             help = "Swap call type: cpi (through router) or direct (standalone PMM instruction)"
         )]
         call_type: CallType,
-    },
-
-    #[command(about = "Initialize an environment for a single PMM and execute a direct swap.")]
-    Direct {
-        #[command(flatten)]
-        common: CommonArgs,
-
-        #[arg(long, help = "The Prop AMM to use (optionally with market hint, e.g. humidifi_Fk)")]
-        pmm: PMMTarget,
-
-        #[arg(long, env = "AMOUNT_IN", default_value_t = 1.0, help = "The amount of tokens to trade")]
-        amount_in: f64,
-    },
-
-    #[command(
-        about = "Fetch accounts from the specified Pmms via RPC and save them locally (presumably for later usage).",
-        after_help = "Examples:
-  pmm-sim fetch-accounts --pmms=humidifi
-  pmm-sim fetch-accounts --pmms=humidifi,obric-v2,zerofi,solfi-v2
-  pmm-sim \
-                      fetch-accounts --pmms=humidifi --http-url=https://my-rpc.com"
-    )]
-    FetchAccounts {
-        #[arg(long, env = "HTTP_URL", default_value = "https://api.mainnet.solana.com")]
-        http_url: SecretString,
-
-        #[arg(long, env = "SETUP_PATH", default_value = consts::SETUP_PATH, help = "Path to the setup configuration file")]
-        setup_path: String,
-
-        #[arg(long, env = "ACCOUNTS_PATH", default_value = consts::ACCOUNTS_PATH, help = "Directory to save fetched accounts")]
-        accounts_path: String,
-
-        #[arg(
-            long,
-            value_delimiter = ',',
-            default_values_t = CliArgs::default_pmm(),
-            help = "Comma-separated list of Prop AMMs to fetch accounts for"
-        )]
-        pmms: Vec<PMMTarget>,
     },
 
     #[command(
