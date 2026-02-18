@@ -16,7 +16,7 @@ use solana_commitment_config::CommitmentConfig;
 use solana_sdk::{account::Account, program_pack::Pack, pubkey::Pubkey, rent::Rent};
 use tracing::{info, warn};
 
-use crate::cfg::{Cfg, Keyed};
+use crate::cfg::{Cfg, Swap};
 
 pub struct Misc;
 impl Misc {
@@ -240,9 +240,13 @@ impl Misc {
             let program_id = Pubkey::new_from_array(pmm.program_id().to_bytes());
             let acc = client.get_account(&program_id)?;
 
+            // upgradeable programs: 4-byte tag + 32-byte programdata address
+            // https://github.com/solana-labs/solana/blob/master/sdk/program/src/bpf_loader_upgradeable.rs#L70-L73
             let programdata_pubkey = Pubkey::new_from_array(acc.data[4..36].try_into()?);
             let programdata_acc = client.get_account(&programdata_pubkey)?;
 
+            // strip 45-byte programdata header (tag + slot + upgrade authority)
+            // https://github.com/solana-labs/solana/blob/master/cli/src/program.rs#L1861-L1862
             let elf_bytes = programdata_acc.data[45..].to_vec();
             programs.push((*pmm, program_id, elf_bytes));
 
@@ -279,7 +283,7 @@ impl Misc {
     pub fn deser_market<'de, D, T>(deserializer: D) -> Result<IndexMap<Pubkey, T>, D::Error>
     where
         D: serde::Deserializer<'de>,
-        T: Deserialize<'de> + Keyed,
+        T: Deserialize<'de> + Swap,
     {
         let items: Vec<T> = Vec::deserialize(deserializer)?;
         Ok(items.into_iter().map(|item| (item.market_key(), item)).collect())

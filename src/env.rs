@@ -7,6 +7,7 @@ use solana_client::rpc_client::RpcClient;
 use solana_compute_budget::compute_budget::ComputeBudget;
 use solana_sdk::{account::Account, program_pack::Pack, pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction};
 use spl_associated_token_account::get_associated_token_address;
+use tracing::warn;
 
 use crate::{Aggregator, Misc, cfg::Cfg, consts};
 
@@ -215,6 +216,12 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
         Misc::to_human(balance, dec)
     }
 
+    /// Reads the mint of a token account loaded in the SVM.
+    pub fn token_account_mint(&self, token_account: &Pubkey) -> Pubkey {
+        let acc = self.svm.get_account(token_account).unwrap_or_else(|| panic!("account {token_account} not found in SVM"));
+        spl_token::state::Account::unpack(&acc.data).unwrap_or_else(|_| panic!("failed to unpack token account {token_account}")).mint
+    }
+
     pub fn latest_blockhash(&self) -> solana_sdk::hash::Hash {
         self.svm.latest_blockhash()
     }
@@ -226,8 +233,8 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     /// Extracts all SwapEvents from a swap transaction's logs.
     ///
     /// Parses the `SwapEvent` logs emitted by the router program to find
-    /// `dex`, `amount_in`, and `amount_out` values. Panics if no events are found.
-    pub fn get_swap_events(&self, metadata: &TransactionMetadata) -> Vec<SwapEvent> {
+    /// `dex`, `amount_in`, and `amount_out` values.
+    pub fn get_router_swap_events(&self, metadata: &TransactionMetadata) -> Vec<SwapEvent> {
         let events: Vec<SwapEvent> = metadata
             .logs
             .iter()
@@ -243,7 +250,10 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             })
             .collect();
 
-        assert!(!events.is_empty(), "couldn't find any SwapEvent in logs");
+        if events.is_empty() {
+            warn!("couldn't find any SwapEvent in logs");
+        }
+
         events
     }
 
@@ -439,7 +449,7 @@ mod tests {
             "Program log: CUX1SEkh3HmNqv6zzkXFr6VsxGHa66jt98E3qBtXoEni",
         ]);
 
-        let events = env.get_swap_events(&metadata);
+        let events = env.get_router_swap_events(&metadata);
 
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].dex, magnus_router_client::types::Dex::HumidiFi);
@@ -456,7 +466,7 @@ mod tests {
         let env = Environment::new("", "", None, default_cfg(), None).unwrap();
         let metadata = mock_metadata(vec!["Program log: some unrelated log"]);
 
-        env.get_swap_events(&metadata);
+        env.get_router_swap_events(&metadata);
     }
 
     #[test]

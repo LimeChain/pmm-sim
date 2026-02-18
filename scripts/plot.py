@@ -7,8 +7,21 @@ import random
 import matplotlib.pyplot as plt
 import polars as pl
 
-MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*", "h", "<", ">", "p"]
+MARKERS = ["o", "s", "^", "v", "*", "h", "<", ">", "p"]
 LINESTYLES = ["--", "-.", ":"]
+VIA_TAGS = {"magnus", "jupiter", "okxlabs", "dflow", "titan", "direct"}
+
+
+def _extract_via(filepath: str) -> str | None:
+    """Extract the via tag (magnus/jupiter/direct/...) from the filename.
+
+    Filename format: slot_via_pmm_market_time.parquet
+    """
+    basename = os.path.basename(filepath).removesuffix(".parquet")
+    parts = basename.split("_", 2)  # [slot, via, rest...]
+    if len(parts) >= 2 and parts[1] in VIA_TAGS:
+        return parts[1]
+    return None
 
 
 def plot_exchange_rate(
@@ -22,18 +35,26 @@ def plot_exchange_rate(
     for i, file in enumerate(files):
         df = pl.read_parquet(file)
         df = df.with_columns((pl.col("amount_out") / pl.col("amount_in")).alias("rate"))
-        label = f"{df['pmm'][0]} ({df['market'][0]})"
+        via = _extract_via(file)
+        label = (
+            f"{df['pmm'][0]} ({df['market'][0]}) [{via}]"
+            if via
+            else f"{df['pmm'][0]} ({df['market'][0]})"
+        )
         kwargs = {}
         if markers:
             kwargs["marker"] = MARKERS[i % len(MARKERS)]
-            kwargs["markersize"] = 6
-            kwargs["markevery"] = random.randint(5, 30)
-        ls = linestyle if linestyle else "-"
+            kwargs["markersize"] = 5
+            kwargs["markevery"] = (i * 7, max(10, len(df) // 30))
+            kwargs["fillstyle"] = "none"
+            kwargs["markeredgewidth"] = 1.2
+        ls = linestyle if linestyle else LINESTYLES[i % len(LINESTYLES)]
         ax.plot(
             df["amount_in"],
             df["rate"],
             linestyle=ls,
-            linewidth=1,
+            linewidth=1.4,
+            alpha=0.85,
             label=label,
             **kwargs,
         )
@@ -61,18 +82,26 @@ def plot_compute_units(
 
     for i, file in enumerate(files):
         df = pl.read_parquet(file)
-        label = f"{df['pmm'][0]} ({df['market'][0]})"
+        via = _extract_via(file)
+        label = (
+            f"{df['pmm'][0]} ({df['market'][0]}) [{via}]"
+            if via
+            else f"{df['pmm'][0]} ({df['market'][0]})"
+        )
         kwargs = {}
         if markers:
             kwargs["marker"] = MARKERS[i % len(MARKERS)]
-            kwargs["markersize"] = 6
-            kwargs["markevery"] = random.randint(5, 30)
-        ls = linestyle if linestyle else "-"
+            kwargs["markersize"] = 5
+            kwargs["markevery"] = (i * 7, max(10, len(df) // 30))
+            kwargs["fillstyle"] = "none"
+            kwargs["markeredgewidth"] = 1.2
+        ls = linestyle if linestyle else LINESTYLES[i % len(LINESTYLES)]
         ax.plot(
             df["amount_in"],
             df["compute_units"],
             linestyle=ls,
-            linewidth=1,
+            linewidth=1.4,
+            alpha=0.85,
             label=label,
             **kwargs,
         )

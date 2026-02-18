@@ -3,12 +3,21 @@ use std::{collections::HashMap, fmt, fs, str::FromStr};
 use indexmap::IndexMap;
 use magnus_shared::Dex;
 use serde::Deserialize;
-use solana_sdk::pubkey::Pubkey;
+use solana_sdk::{instruction::AccountMeta, pubkey::Pubkey, sysvar};
 
 use crate::misc::Misc;
 
-pub trait Keyed {
+pub trait Swap {
     fn market_key(&self) -> Pubkey;
+    fn accounts(&self) -> Vec<Pubkey>;
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        src_mint: Option<Pubkey>,
+        dst_mint: Option<Pubkey>,
+    ) -> Vec<AccountMeta>;
 }
 
 /// A CLI-facing target: a DEX plus an optional market hint.
@@ -154,15 +163,34 @@ pub struct HumidifiSwapV1 {
     pub quote_ta: Pubkey,
 }
 
-impl HumidifiSwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.base_ta, self.quote_ta]
-    }
-}
-
-impl Keyed for HumidifiSwapV1 {
+impl Swap for HumidifiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(self.base_ta, false),
+            AccountMeta::new(self.quote_ta, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]
     }
 }
 
@@ -184,15 +212,39 @@ pub struct HumidifiSwapV2 {
     pub vote: Pubkey,
 }
 
-impl HumidifiSwapV2 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.base_ta, self.quote_ta, self.token0_mint, self.token1_mint, self.add1, self.vote]
-    }
-}
-
-impl Keyed for HumidifiSwapV2 {
+impl Swap for HumidifiSwapV2 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta, self.token0_mint, self.token1_mint, self.add1, self.vote]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(self.base_ta, false),
+            AccountMeta::new(self.quote_ta, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new_readonly(sysvar::clock::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+            AccountMeta::new(self.token0_mint, false),
+            AccountMeta::new(self.token1_mint, false),
+            AccountMeta::new(self.add1, false),
+            AccountMeta::new_readonly(self.vote, false),
+        ]
     }
 }
 
@@ -215,15 +267,37 @@ pub struct TesseraSwapV1 {
     pub global_state: Pubkey,
 }
 
-impl TesseraSwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.base_ta, self.quote_ta, self.global_state]
-    }
-}
-
-impl Keyed for TesseraSwapV1 {
+impl Swap for TesseraSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta, self.global_state]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        src_mint: Option<Pubkey>,
+        dst_mint: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new_readonly(self.global_state, false),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.base_ta, false),
+            AccountMeta::new(self.quote_ta, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new_readonly(src_mint.unwrap_or_default(), false),
+            AccountMeta::new_readonly(dst_mint.unwrap_or_default(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]
     }
 }
 
@@ -246,15 +320,34 @@ pub struct GoonfiSwapV1 {
     pub blacklist: Pubkey,
 }
 
-impl GoonfiSwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.base_ta, self.quote_ta, self.blacklist]
-    }
-}
-
-impl Keyed for GoonfiSwapV1 {
+impl Swap for GoonfiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta, self.blacklist]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new(self.base_ta, false),
+            AccountMeta::new(self.quote_ta, false),
+            AccountMeta::new_readonly(self.blacklist, false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+        ]
     }
 }
 
@@ -283,15 +376,38 @@ pub struct SolfiV2SwapV1 {
     pub quote_mint: Pubkey,
 }
 
-impl SolfiV2SwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.base_ta, self.quote_ta, self.cfg, self.oracle, self.base_mint, self.quote_mint]
-    }
-}
-
-impl Keyed for SolfiV2SwapV1 {
+impl Swap for SolfiV2SwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.base_ta, self.quote_ta, self.cfg, self.oracle, self.base_mint, self.quote_mint]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new_readonly(self.oracle, false),
+            AccountMeta::new_readonly(self.cfg, false),
+            AccountMeta::new(self.base_ta, false),
+            AccountMeta::new(self.quote_ta, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new(self.base_mint, false),
+            AccountMeta::new(self.quote_mint, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]
     }
 }
 
@@ -316,15 +432,35 @@ pub struct ZerofiSwapV1 {
     pub vault_quote: Pubkey,
 }
 
-impl ZerofiSwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.vault_info_base, self.vault_base, self.vault_info_quote, self.vault_quote]
-    }
-}
-
-impl Keyed for ZerofiSwapV1 {
+impl Swap for ZerofiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.vault_info_base, self.vault_base, self.vault_info_quote, self.vault_quote]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(self.vault_info_base, false),
+            AccountMeta::new(self.vault_base, false),
+            AccountMeta::new(self.vault_info_quote, false),
+            AccountMeta::new(self.vault_quote, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]
     }
 }
 
@@ -355,8 +491,12 @@ pub struct ObricV2SwapV2 {
     pub y_price_feed: Pubkey,
 }
 
-impl ObricV2SwapV2 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
+impl Swap for ObricV2SwapV2 {
+    fn market_key(&self) -> Pubkey {
+        self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
         vec![
             self.market,
             self.second_ref_oracle,
@@ -368,11 +508,29 @@ impl ObricV2SwapV2 {
             self.y_price_feed,
         ]
     }
-}
 
-impl Keyed for ObricV2SwapV2 {
-    fn market_key(&self) -> Pubkey {
-        self.market
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(self.market, false),
+            AccountMeta::new_readonly(self.second_ref_oracle, false),
+            AccountMeta::new_readonly(self.third_ref_oracle, false),
+            AccountMeta::new(self.reserve_x, false),
+            AccountMeta::new(self.reserve_y, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new(self.ref_oracle, false),
+            AccountMeta::new_readonly(self.x_price_feed, false),
+            AccountMeta::new_readonly(self.y_price_feed, false),
+            AccountMeta::new(payer, true),
+            AccountMeta::new_readonly(spl_token::id(), false),
+        ]
     }
 }
 
@@ -393,15 +551,34 @@ pub struct BisonfiSwapV1 {
     pub market_quote_ta: Pubkey,
 }
 
-impl BisonfiSwapV1 {
-    pub fn accounts(&self) -> Vec<Pubkey> {
-        vec![self.market, self.market_base_ta, self.market_quote_ta]
-    }
-}
-
-impl Keyed for BisonfiSwapV1 {
+impl Swap for BisonfiSwapV1 {
     fn market_key(&self) -> Pubkey {
         self.market
+    }
+
+    fn accounts(&self) -> Vec<Pubkey> {
+        vec![self.market, self.market_base_ta, self.market_quote_ta]
+    }
+
+    fn swap_accounts(
+        &self,
+        payer: Pubkey,
+        user_src_ta: Pubkey,
+        user_dst_ta: Pubkey,
+        _: Option<Pubkey>,
+        _: Option<Pubkey>,
+    ) -> Vec<AccountMeta> {
+        vec![
+            AccountMeta::new(payer, true),
+            AccountMeta::new(self.market, false),
+            AccountMeta::new(self.market_base_ta, false),
+            AccountMeta::new(self.market_quote_ta, false),
+            AccountMeta::new(user_src_ta, false),
+            AccountMeta::new(user_dst_ta, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(sysvar::instructions::id(), false),
+        ]
     }
 }
 
