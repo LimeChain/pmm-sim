@@ -121,7 +121,7 @@ RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 --pmms="[[
 RUST_LOG=debug ./target/release/pmm-sim direct --pmm=humidifi-swap-v3 --amount-in=350 --src-token=WSOL --dst-token=USDC
 ```
 
-##### Execute a direct offchain call towards BisonFi's [FC9 market](https://solscan.io/token/C3DwDjT17gDvvCYC2nsdGHxDHVmQRdhKfpAdqQ29pump), swapping 35K USDT for WSOL.
+##### Execute a direct offchain call towards BisonFi's [FC9 market](https://solscan.io/account/FC9pWtfdtbyGZ5WHTLneoMSUx6jmTDgqKaxDcm2trsND), swapping 35K USDT for WSOL.
 
 ```
 ./target/release/pmm-sim direct --pmm=bisonfi_FC9 --amount-in=35000 --src-token=USDT --dst-token=WSOL
