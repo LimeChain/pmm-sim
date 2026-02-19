@@ -20,7 +20,6 @@ pub struct Environment<'a, P: Into<String> + Display + Clone + Debug> {
     pub slot: Option<u64>,
     pub wallet: Keypair,
     mints: Option<&'a [(Pubkey, u8)]>,
-    cfg: Cfg,
 
     programs_path: P,
     accounts_path: P,
@@ -39,13 +38,7 @@ impl<'a, P: Into<String> + Display + Clone + std::fmt::Debug> Debug for Environm
 }
 
 impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
-    pub fn new(
-        programs_path: P,
-        accounts_path: P,
-        mints: Option<&[(Pubkey, u8)]>,
-        cfg: Cfg,
-        slot: Option<u64>,
-    ) -> eyre::Result<Environment<'_, P>> {
+    pub fn new(programs_path: P, accounts_path: P, mints: Option<&[(Pubkey, u8)]>, slot: Option<u64>) -> eyre::Result<Environment<'_, P>> {
         let mut budget = ComputeBudget::new_with_defaults(false, false);
         budget.compute_unit_limit = consts::COMPUTE_UNITS_LIMIT;
 
@@ -60,7 +53,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
             svm.warp_to_slot(slot);
         }
 
-        Ok(Environment { svm, slot, wallet, programs_path, accounts_path, mints, cfg })
+        Ok(Environment { svm, slot, wallet, programs_path, accounts_path, mints })
     }
 
     /// Sets up the wallet for the simulation environment.
@@ -163,11 +156,18 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// Fetches and loads PMM accounts either from RPC (JIT) or from disk cache.
-    pub fn get_and_load_accounts(&mut self, pmms: &[Dex], jit: bool, client: Option<&RpcClient>) -> eyre::Result<&mut Self> {
+    pub fn get_and_load_accounts(
+        &mut self,
+        pmms: &[Dex],
+        jit: bool,
+        client: Option<&RpcClient>,
+        cfg: Option<&Cfg>,
+    ) -> eyre::Result<&mut Self> {
         match jit {
             true => {
                 let rpc_client = client.expect("RPC client is required for JIT account loading");
-                self.jit_accounts(pmms, rpc_client)?;
+                let cfg = cfg.expect("Config is required for JIT account loading");
+                self.jit_accounts(pmms, rpc_client, cfg)?;
             }
             false => {
                 self.static_accounts(pmms)?;
@@ -178,8 +178,8 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
     }
 
     /// Fetches PMM accounts from RPC and warps to the fetched slot.
-    pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient) -> eyre::Result<&mut Self> {
-        let (slot, accs_map) = Misc::fetch_accounts(pmms, client, &self.cfg)?;
+    pub fn jit_accounts(&mut self, pmms: &[Dex], client: &RpcClient, cfg: &Cfg) -> eyre::Result<&mut Self> {
+        let (slot, accs_map) = Misc::fetch_accounts(pmms, client, cfg)?;
 
         accs_map.iter().try_for_each(|(_, markets)| markets.iter().try_for_each(|(_, accs)| self.set_accounts(accs).map(|_| ())))?;
 
@@ -242,8 +242,7 @@ impl<'a, P: Into<String> + Display + Clone + Debug> Environment<'a, P> {
                 if !log.contains("SwapEvent") {
                     return None;
                 }
-                let dex_str = log.split("dex: ").nth(1)?.split(',').next()?;
-                let dex: Dex = dex_str.to_lowercase().parse().ok()?;
+                let dex = log.split("dex: ").nth(1)?.split(',').next()?.to_lowercase().parse::<Dex>().ok()?;
                 let amount_in = log.split("amount_in: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
                 let amount_out = log.split("amount_out: ").nth(1)?.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
                 Some(SwapEvent { dex: dex.into(), amount_in, amount_out })
@@ -281,21 +280,17 @@ mod tests {
     const USDC: Pubkey = pubkey!("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
     const USDC_DECIMALS: u8 = 6;
 
-    fn default_cfg() -> Cfg {
-        toml::from_str("").unwrap()
-    }
-
     #[test]
     fn test_new_generates_unique_wallet() {
-        let env1 = Environment::new("", "", None, default_cfg(), None).unwrap();
-        let env2 = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env1 = Environment::new("", "", None, None).unwrap();
+        let env2 = Environment::new("", "", None, None).unwrap();
 
         assert_ne!(env1.wallet_pubkey(), env2.wallet_pubkey());
     }
 
     #[test]
     fn test_new_without_slot_leaves_slot_none() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
 
         assert!(env.slot.is_none());
     }
@@ -303,14 +298,14 @@ mod tests {
     #[test]
     fn test_new_with_slot_sets_slot() {
         let slot = 12345678u64;
-        let env = Environment::new("", "", None, default_cfg(), Some(slot)).unwrap();
+        let env = Environment::new("", "", None, Some(slot)).unwrap();
 
         assert_eq!(env.slot, Some(slot));
     }
 
     #[test]
     fn test_new_without_mints_leaves_mints_none() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
 
         assert!(env.mints.is_none());
     }
@@ -319,7 +314,7 @@ mod tests {
     fn test_new_with_mints_creates_mint_accounts() {
         let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
 
-        let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+        let env = Environment::new("", "", Some(&mints), None).unwrap();
 
         assert!(env.mints.is_some());
         assert_eq!(env.mints.unwrap().len(), 2);
@@ -342,7 +337,7 @@ mod tests {
     #[test]
     fn test_wallet_ata_derives_correct_address() {
         let mints = vec![(WSOL, WSOL_DECIMALS)];
-        let env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+        let env = Environment::new("", "", Some(&mints), None).unwrap();
 
         let expected_ata = get_associated_token_address(&env.wallet_pubkey(), &WSOL);
         let actual_ata = env.wallet_ata(&WSOL);
@@ -353,7 +348,7 @@ mod tests {
     #[test]
     fn test_setup_wallet_creates_atas_and_funds() {
         let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
-        let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+        let mut env = Environment::new("", "", Some(&mints), None).unwrap();
 
         let src_amount = 1_000_000_000u64;
         let airdrop = 10_000_000_000u64;
@@ -371,7 +366,7 @@ mod tests {
     #[test]
     fn test_reset_wallet_restores_balances() {
         let mints = vec![(WSOL, WSOL_DECIMALS), (USDC, USDC_DECIMALS)];
-        let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+        let mut env = Environment::new("", "", Some(&mints), None).unwrap();
 
         env.setup_wallet(&WSOL, 1_000_000_000, 10_000_000_000).unwrap();
 
@@ -389,7 +384,7 @@ mod tests {
 
     #[test]
     fn test_token_balance_returns_zero_for_nonexistent_ata() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
 
         assert_eq!(env.token_balance(&WSOL), 0);
     }
@@ -397,7 +392,7 @@ mod tests {
     #[test]
     fn test_token_balance_norm_converts_correctly() {
         let mints = vec![(WSOL, WSOL_DECIMALS)];
-        let mut env = Environment::new("", "", Some(&mints), default_cfg(), None).unwrap();
+        let mut env = Environment::new("", "", Some(&mints), None).unwrap();
 
         let raw_amount = 1_500_000_000u64;
         env.setup_wallet(&WSOL, raw_amount, 10_000_000_000).unwrap();
@@ -409,7 +404,7 @@ mod tests {
 
     #[test]
     fn test_latest_blockhash_returns_valid_hash() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
 
         let blockhash = env.latest_blockhash();
 
@@ -418,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_load_accounts_sets_accounts_in_svm() {
-        let mut env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let mut env = Environment::new("", "", None, None).unwrap();
 
         let pubkey = Pubkey::new_unique();
         let account =
@@ -438,7 +433,7 @@ mod tests {
 
     #[test]
     fn test_get_swap_events_parses_all_events() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
         let metadata = mock_metadata(vec![
             "Program data: QMbN6CYIceIFgHWE3wAAAACC1uW4CQAAAA==",
             "Program log: SwapEvent { dex: HumidiFi, amount_in: 3750000000, amount_out: 41756776066 }",
@@ -462,7 +457,7 @@ mod tests {
 
     #[test]
     fn test_get_amount_out_parses_after_destination_balance() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
         let metadata = mock_metadata(vec![
             "Program log: SwapEvent { dex: HumidiFi, amount_in: 6000000000, amount_out: 66808299986 }",
             "Program log: after_source_balance: 0, after_destination_balance: 167066576506, source_token_change: 15000000000, \
@@ -475,7 +470,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "couldn't find after_destination_balance in logs")]
     fn test_get_amount_out_panics_when_missing() {
-        let env = Environment::new("", "", None, default_cfg(), None).unwrap();
+        let env = Environment::new("", "", None, None).unwrap();
         let metadata = mock_metadata(vec!["Program log: some unrelated log"]);
 
         env.get_amount_out(&metadata);

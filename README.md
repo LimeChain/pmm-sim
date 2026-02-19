@@ -121,10 +121,10 @@ RUST_LOG=debug ./target/release/pmm-sim multi --amount-in=150000,1000 --pmms="[[
 RUST_LOG=debug ./target/release/pmm-sim direct --pmm=humidifi-swap-v3 --amount-in=350 --src-token=WSOL --dst-token=USDC
 ```
 
-##### Execute a direct offchain call towards BisonFi's [FC9 market](https://solscan.io/token/C3DwDjT17gDvvCYC2nsdGHxDHVmQRdhKfpAdqQ29pump), swapping 350K USDT for WSOL.
+##### Execute a direct offchain call towards BisonFi's [FC9 market](https://solscan.io/token/C3DwDjT17gDvvCYC2nsdGHxDHVmQRdhKfpAdqQ29pump), swapping 35K USDT for WSOL.
 
 ```
-/target/release/pmm-sim direct --pmm=bisonfi_FC9 --amount-in=350000 --src-token=USDT --dst-token=WSOL
+./target/release/pmm-sim direct --pmm=bisonfi_FC9 --amount-in=35000 --src-token=USDT --dst-token=WSOL
 ```
 
 ### Benchmark swaps
@@ -161,16 +161,16 @@ Generated benchmark data can be plotted through [./scripts/plot.py](./scripts/pl
 
 ### Fetch current accounts
 
-##### Locally sync the current (live) accounts for all supported Prop AMMs.
+##### Locally sync the current (live) accounts for BisonFi and HumidiFi's swap-v3.
 
 ```
-./target/release/pmm-sim fetch-accounts
+./target/release/pmm-sim fetch-accounts --pmms=bisonfi,humidifi-swap-v3
 ```
 
-##### Locally sync the current (live) accounts for HumidiFi and SolFiV2.
+##### Locally sync the current (live) accounts for Tessera and SolFiV2.
 
 ```
-./target/release/pmm-sim fetch-accounts --pmms=humidifi,solfi-v2
+./target/release/pmm-sim fetch-accounts --pmms=tessera,solfi-v2
 ```
 
 ### Fetch current programs

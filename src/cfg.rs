@@ -18,6 +18,7 @@ pub trait Swap {
         src_mint: Option<Pubkey>,
         dst_mint: Option<Pubkey>,
     ) -> Vec<AccountMeta>;
+    fn instruction_data(&self, selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8>;
 }
 
 /// A CLI-facing target: a DEX plus an optional market hint.
@@ -153,6 +154,39 @@ pub struct HumidifiCfg {
     pub swap_v3: IndexMap<Pubkey, HumidifiSwapV2>,
 }
 
+fn humidifi_instruction_data(selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+    let swap_id: u64 = 1500;
+    let mut data: Vec<u8> = Vec::with_capacity(25);
+    data.extend_from_slice(&swap_id.to_le_bytes());
+    data.extend_from_slice(&amount_in.to_le_bytes());
+    data.push(direction);
+    data.extend_from_slice(&[0u8; 7]); // padding
+    data.extend_from_slice(selector);
+
+    // obfuscate instruction data
+    let key: u64 = u64::from_le_bytes([58, 255, 47, 255, 226, 186, 235, 195]);
+    for (i, chunk) in data.chunks_exact_mut(8).enumerate() {
+        let qword = u64::from_le_bytes(chunk.try_into().unwrap());
+        let pos_mask = (0x0001_0001_0001_0001u64).wrapping_mul(i as u64);
+        let obfuscated = qword ^ key ^ pos_mask;
+        chunk.copy_from_slice(&obfuscated.to_le_bytes());
+    }
+    // handle remainder (last byte = selector)
+    let remainder_start = data.len() / 8 * 8;
+    if remainder_start < data.len() {
+        let pos_mask = (0x0001_0001_0001_0001u64).wrapping_mul((remainder_start / 8) as u64);
+        let mut rem = [0u8; 8];
+        let rem_len = data.len() - remainder_start;
+        rem[..rem_len].copy_from_slice(&data[remainder_start..]);
+        let qword = u64::from_le_bytes(rem);
+        let obfuscated = qword ^ key ^ pos_mask;
+        let ob_bytes = obfuscated.to_le_bytes();
+        data[remainder_start..].copy_from_slice(&ob_bytes[..rem_len]);
+    }
+
+    data
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct HumidifiSwapV1 {
     #[serde(deserialize_with = "Misc::deser_pubkey")]
@@ -191,6 +225,10 @@ impl Swap for HumidifiSwapV1 {
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]
+    }
+
+    fn instruction_data(&self, selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        humidifi_instruction_data(selector, amount_in, direction)
     }
 }
 
@@ -246,6 +284,10 @@ impl Swap for HumidifiSwapV2 {
             AccountMeta::new_readonly(self.vote, false),
         ]
     }
+
+    fn instruction_data(&self, selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        humidifi_instruction_data(selector, amount_in, direction)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -299,6 +341,15 @@ impl Swap for TesseraSwapV1 {
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]
     }
+
+    fn instruction_data(&self, _selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(18);
+        data.extend_from_slice(magnus_shared::pmm_tessera::SWAP_SELECTOR);
+        data.extend_from_slice(&direction.to_le_bytes());
+        data.extend_from_slice(&amount_in.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -348,6 +399,15 @@ impl Swap for GoonfiSwapV1 {
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
         ]
+    }
+
+    fn instruction_data(&self, _selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(19);
+        data.extend_from_slice(magnus_shared::pmm_goonfi::SWAP_SELECTOR);
+        data.extend_from_slice(&[direction, 0u8]); // is_bid + bump
+        data.extend_from_slice(&amount_in.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data
     }
 }
 
@@ -409,6 +469,15 @@ impl Swap for SolfiV2SwapV1 {
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]
     }
+
+    fn instruction_data(&self, _selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(18);
+        data.extend_from_slice(magnus_shared::pmm_solfi_v2::SWAP_SELECTOR);
+        data.extend_from_slice(&amount_in.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data.push(direction);
+        data
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -461,6 +530,10 @@ impl Swap for ZerofiSwapV1 {
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]
+    }
+
+    fn instruction_data(&self, _selector: &[u8], _amount_in: u64, _direction: u8) -> Vec<u8> {
+        unimplemented!("direct swap instruction_data not yet implemented for ZeroFi")
     }
 }
 
@@ -532,6 +605,15 @@ impl Swap for ObricV2SwapV2 {
             AccountMeta::new_readonly(spl_token::id(), false),
         ]
     }
+
+    fn instruction_data(&self, _selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(18);
+        data.extend_from_slice(magnus_shared::pmm_obric_v2::SWAP2_SELECTOR);
+        data.push(direction);
+        data.extend_from_slice(&amount_in.to_le_bytes());
+        data.extend_from_slice(&1u64.to_le_bytes());
+        data
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -579,6 +661,15 @@ impl Swap for BisonfiSwapV1 {
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(sysvar::instructions::id(), false),
         ]
+    }
+
+    fn instruction_data(&self, _selector: &[u8], amount_in: u64, direction: u8) -> Vec<u8> {
+        let mut data = Vec::with_capacity(18);
+        data.extend_from_slice(magnus_shared::pmm_bisonfi::SWAP_SELECTOR);
+        data.extend_from_slice(&amount_in.to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+        data.push(direction);
+        data
     }
 }
 

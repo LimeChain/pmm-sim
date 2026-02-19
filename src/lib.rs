@@ -752,8 +752,7 @@ impl App {
                         // have finished bootstrapping so there's no CLI progress bar race cond
                         let (mut env, src_ata, dst_ata) =
                             multi.suspend(|| -> eyre::Result<_> {
-                                let mut env =
-                                    Environment::new(&common.programs_path, &common.accounts_path, Some(mints), cfg.clone(), slot)?;
+                                let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(mints), slot)?;
                                 env.get_and_load_programs(&[pmm], common.jit_programs, spoof_for_programs, Some(rpc_client))?
                                     .setup_wallet(&src_token.addr, benchmark.range_end(), consts::AIRDROP_AMOUNT)?;
 
@@ -926,9 +925,9 @@ impl App {
         let amount_in: Vec<u64> = amount_in.iter().map(|amount| Misc::to_raw(*amount, src_token.dec)).collect();
         let amount_in_sum: u64 = amount_in.iter().sum();
 
-        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
+        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), None)?;
         env.get_and_load_programs(&flat_dexes, common.jit_programs, *spoof, Some(&rpc_client))?
-            .get_and_load_accounts(&flat_dexes, common.jit_accounts, Some(&rpc_client))?
+            .get_and_load_accounts(&flat_dexes, common.jit_accounts, Some(&rpc_client), Some(&self.cfg))?
             .setup_wallet(&src_token.addr, amount_in_sum, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
@@ -1023,16 +1022,10 @@ impl App {
                     panic!("src/dst token mints don't match solfi-v2 market base/quote mints");
                 };
 
-                let mut data = Vec::with_capacity(18);
-                data.extend_from_slice(magnus_shared::pmm_solfi_v2::SWAP_SELECTOR);
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.extend_from_slice(&1u64.to_le_bytes());
-                data.push(direction);
-
                 Instruction {
                     program_id: Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()),
                     accounts: cfg.swap_accounts(env.wallet_pubkey(), user_base_ta, user_quote_ta, None, None),
-                    data,
+                    data: cfg.instruction_data(&[], amount_in, direction),
                 }
             }
             Dex::Tessera => {
@@ -1055,16 +1048,10 @@ impl App {
                     panic!("src/dst token mints don't match tessera market base/quote mints");
                 };
 
-                let mut data = Vec::with_capacity(18);
-                data.extend_from_slice(magnus_shared::pmm_tessera::SWAP_SELECTOR);
-                data.extend_from_slice(&side.to_le_bytes());
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.extend_from_slice(&1u64.to_le_bytes()); // min_amount_out
-
                 Instruction {
                     program_id: Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()),
                     accounts: cfg.swap_accounts(env.wallet_pubkey(), user_base_ta, user_quote_ta, Some(base_mint), Some(quote_mint)),
-                    data,
+                    data: cfg.instruction_data(&[], amount_in, side),
                 }
             }
             Dex::BisonFi => {
@@ -1083,82 +1070,48 @@ impl App {
                     (true, dst_ata, src_ata)
                 };
 
-                let mut data = Vec::with_capacity(18);
-                data.extend_from_slice(magnus_shared::pmm_bisonfi::SWAP_SELECTOR);
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.extend_from_slice(&0u64.to_le_bytes()); // amount_out_min
-                data.push(b_to_a as u8);
-
                 Instruction {
                     program_id: Pubkey::new_from_array(magnus_shared::pmm_bisonfi::id().to_bytes()),
                     accounts: cfg.swap_accounts(env.wallet_pubkey(), user_base_ta, user_quote_ta, None, None),
-                    data,
+                    data: cfg.instruction_data(&[], amount_in, b_to_a as u8),
                 }
             }
             Dex::HumidiFi | Dex::HumidiFiSwapV2 | Dex::HumidiFiSwapV3 => {
                 let humidifi = self.cfg.humidifi.as_ref().unwrap_or_else(|| panic!("HumidiFi not configured"));
 
-                let selector: &[u8];
-                let cfg_base_ta: Pubkey;
-                let accounts = match pmm.dex {
+                let (accounts, data) = match pmm.dex {
                     Dex::HumidiFi => {
-                        selector = magnus_shared::pmm_humidifi::SWAP_SELECTOR;
                         let c = humidifi.swap_v1.get(&market).unwrap_or_else(|| panic!("HumidiFi v1 market {market} not configured"));
-                        cfg_base_ta = c.base_ta;
                         let base_mint = env.token_account_mint(&c.base_ta);
                         let (ba, qa) = if src_token.addr == base_mint { (src_ata, dst_ata) } else { (dst_ata, src_ata) };
-                        c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None)
+                        let is_quote_to_base: u8 = if src_token.addr == base_mint { 0 } else { 1 };
+                        (
+                            c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None),
+                            c.instruction_data(magnus_shared::pmm_humidifi::SWAP_SELECTOR, amount_in, is_quote_to_base),
+                        )
                     }
                     Dex::HumidiFiSwapV2 => {
-                        selector = magnus_shared::pmm_humidifi::SWAPV2_SELECTOR;
                         let c = humidifi.swap_v2.get(&market).unwrap_or_else(|| panic!("HumidiFi v2 market {market} not configured"));
-                        cfg_base_ta = c.base_ta;
                         let base_mint = env.token_account_mint(&c.base_ta);
                         let (ba, qa) = if src_token.addr == base_mint { (src_ata, dst_ata) } else { (dst_ata, src_ata) };
-                        c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None)
+                        let is_quote_to_base: u8 = if src_token.addr == base_mint { 0 } else { 1 };
+                        (
+                            c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None),
+                            c.instruction_data(magnus_shared::pmm_humidifi::SWAPV2_SELECTOR, amount_in, is_quote_to_base),
+                        )
                     }
                     Dex::HumidiFiSwapV3 => {
-                        selector = magnus_shared::pmm_humidifi::SWAPV3_SELECTOR;
                         let c = humidifi.swap_v3.get(&market).unwrap_or_else(|| panic!("HumidiFi v3 market {market} not configured"));
-                        cfg_base_ta = c.base_ta;
                         let base_mint = env.token_account_mint(&c.base_ta);
                         let (ba, qa) = if src_token.addr == base_mint { (src_ata, dst_ata) } else { (dst_ata, src_ata) };
-                        c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None)
+                        let is_quote_to_base: u8 = if src_token.addr == base_mint { 0 } else { 1 };
+                        (
+                            c.swap_accounts(env.wallet_pubkey(), ba, qa, None, None),
+                            c.instruction_data(magnus_shared::pmm_humidifi::SWAPV3_SELECTOR, amount_in, is_quote_to_base),
+                        )
                     }
                     _ => unreachable!(),
                 };
-
-                let base_mint = env.token_account_mint(&cfg_base_ta);
-                let is_base_to_quote: u8 = if src_token.addr == base_mint { 0 } else { 1 };
-
-                let swap_id: u64 = 1500;
-                let mut data: Vec<u8> = Vec::with_capacity(25);
-                data.extend_from_slice(&swap_id.to_le_bytes());
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.push(is_base_to_quote);
-                data.extend_from_slice(&[0u8; 7]); // padding
-                data.extend_from_slice(selector);
-
-                // obfuscate instruction data
-                let key: u64 = u64::from_le_bytes([58, 255, 47, 255, 226, 186, 235, 195]);
-                for (i, chunk) in data.chunks_exact_mut(8).enumerate() {
-                    let qword = u64::from_le_bytes(chunk.try_into().unwrap());
-                    let pos_mask = (0x0001_0001_0001_0001u64).wrapping_mul(i as u64);
-                    let obfuscated = qword ^ key ^ pos_mask;
-                    chunk.copy_from_slice(&obfuscated.to_le_bytes());
-                }
-                // handle remainder (last byte = selector)
-                let remainder_start = data.len() / 8 * 8;
-                if remainder_start < data.len() {
-                    let pos_mask = (0x0001_0001_0001_0001u64).wrapping_mul((remainder_start / 8) as u64);
-                    let mut rem = [0u8; 8];
-                    let rem_len = data.len() - remainder_start;
-                    rem[..rem_len].copy_from_slice(&data[remainder_start..]);
-                    let qword = u64::from_le_bytes(rem);
-                    let obfuscated = qword ^ key ^ pos_mask;
-                    let ob_bytes = obfuscated.to_le_bytes();
-                    data[remainder_start..].copy_from_slice(&ob_bytes[..rem_len]);
-                }
 
                 Instruction { program_id: Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), accounts, data }
             }
@@ -1179,22 +1132,10 @@ impl App {
                     (false, src_ata, dst_ata)
                 };
 
-                // blacklist_bump is 0 (goonfi_param is all zeros)
-                let swap_params_data = [
-                    is_bid as u8,
-                    0u8, // bump
-                ];
-
-                let mut data = Vec::with_capacity(19);
-                data.extend_from_slice(magnus_shared::pmm_goonfi::SWAP_SELECTOR);
-                data.extend_from_slice(&swap_params_data);
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.extend_from_slice(&1u64.to_le_bytes()); // minimum_amount_out
-
                 Instruction {
                     program_id: Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()),
                     accounts: cfg.swap_accounts(env.wallet_pubkey(), base_account, quote_account, None, None),
-                    data,
+                    data: cfg.instruction_data(&[], amount_in, is_bid as u8),
                 }
             }
             Dex::ObricV2 => {
@@ -1216,16 +1157,10 @@ impl App {
                     panic!("src/dst token mints don't match obric-v2 market x/y mints");
                 };
 
-                let mut data = Vec::with_capacity(18);
-                data.extend_from_slice(magnus_shared::pmm_obric_v2::SWAP2_SELECTOR);
-                data.push(x_to_y as u8);
-                data.extend_from_slice(&amount_in.to_le_bytes());
-                data.extend_from_slice(&1u64.to_le_bytes()); // min_out
-
                 Instruction {
                     program_id: Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()),
                     accounts: cfg.swap_accounts(env.wallet_pubkey(), user_token_x, user_token_y, None, None),
-                    data,
+                    data: cfg.instruction_data(&[], amount_in, x_to_y as u8),
                 }
             }
             _ => unimplemented!("direct swap not yet implemented for {:?}", pmm.dex),
@@ -1242,9 +1177,9 @@ impl App {
         let mints = vec![(src_token.addr, src_token.dec), (dst_token.addr, dst_token.dec)];
         let amount_in = Misc::to_raw(*amount_in, src_token.dec);
 
-        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), self.cfg.clone(), None)?;
+        let mut env = Environment::new(&common.programs_path, &common.accounts_path, Some(&mints), None)?;
         env.get_and_load_programs(&[pmm.dex], common.jit_programs, None, Some(&rpc_client))?
-            .get_and_load_accounts(&[pmm.dex], common.jit_accounts, Some(&rpc_client))?
+            .get_and_load_accounts(&[pmm.dex], common.jit_accounts, Some(&rpc_client), Some(&self.cfg))?
             .setup_wallet(&src_token.addr, amount_in, consts::AIRDROP_AMOUNT)?;
         info!(?env);
 
