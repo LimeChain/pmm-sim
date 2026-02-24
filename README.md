@@ -17,7 +17,7 @@ Swaps and benchmarks can be done through direct offchain calls, or alternatively
 The swaps and benchmarks can be done with the local static accounts/programs stored at [./cfg/](./cfg/) or with the current live ones by fetching them on-the-go. By default all swaps & benchmark simulations are done with real-time accounts/programs. The markets for each Prop AMM are specified in [./cfg/setup.toml](./cfg/setup.toml).
 
 ![all](./assets/all_rate.png)
-_Figure 1: Exchange rates for WSOL -> USDC at discrete slot `401101387`, with CPI call from [magnus-router](https://github.com/LimeChain/magnus/tree/master/crates/router)_
+_Figure 1: Exchange rates for WSOL -> USDC at discrete slot `401101387`, with spoofed CPI call as Jupiter._
 
 Possible modes of execution include:
 
