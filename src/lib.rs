@@ -4,6 +4,7 @@
 #![doc = include_str!("../README.md")]
 #![allow(clippy::type_complexity, clippy::result_large_err, clippy::too_many_arguments)]
 
+pub mod builder;
 pub mod cfg;
 pub mod env;
 pub mod misc;
@@ -18,15 +19,16 @@ use std::{
 use chrono::Local;
 use clap::{Args, Parser, Subcommand};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
-use magnus_router_client::instructions::SwapBuilder;
+use magnus_router_client::types::SwapArgs;
 use magnus_shared::{Dex, Route};
 use polars::prelude::{Column, DataFrame, ParquetWriter};
 use secrecy::{ExposeSecret, SecretString};
 use solana_client::rpc_client::RpcClient;
-use solana_sdk::{account::Account, instruction::Instruction, message::AccountMeta, pubkey, pubkey::Pubkey, transaction::Transaction};
+use solana_sdk::{account::Account, instruction::Instruction, pubkey, pubkey::Pubkey, transaction::Transaction};
 use tracing::{debug, info, warn};
 
 use crate::{
+    builder::ConstructSwap,
     cfg::{Cfg, PMMTarget, Swap},
     env::Environment,
     misc::Misc,
@@ -400,163 +402,6 @@ pub enum CallType {
     Direct,
 }
 
-/// A helper struct to construct swap instructions with the required accounts
-/// for different Prop AMMs.
-///
-/// As it currently stands, all swaps pass through the Magnus Router program,
-/// which in turn calls the respective Prop AMM program. Therefore, the swap
-/// instruction is built using the `SwapBuilder` from the `magnus-router-client`
-/// crate, and then the required accounts for the specific Prop AMM are attached.
-///
-/// The order of the remaining_accounts matters.
-pub struct ConstructSwap<'a> {
-    cfg: Cfg,
-    builder: &'a mut SwapBuilder,
-    payer: Pubkey,
-    src_ta: Pubkey,
-    dst_ta: Pubkey,
-    src_mint: Pubkey,
-    dst_mint: Pubkey,
-}
-
-impl<'a> ConstructSwap<'a> {
-    fn instruction(&self) -> solana_sdk::instruction::Instruction {
-        self.builder.instruction()
-    }
-
-    /// Attaches the required remaining accounts for the specified PMM to the swap instruction.
-    ///
-    /// Each Prop AMM program expects a specific set of accounts in a precise order as
-    /// "remaining accounts" on the swap instruction. This method dispatches to the
-    /// appropriate PMM-specific attachment function based on the DEX type.
-    pub fn attach_pmm_accs(&mut self, pmm: &Dex, market: &Pubkey) -> &mut Self {
-        match pmm {
-            Dex::HumidiFi => self.attach_humidifi_accs(market),
-            Dex::HumidiFiSwapV2 | Dex::HumidiFiSwapV3 => self.attach_humidifi_swap_v2v3_accs(pmm, market),
-            Dex::SolfiV2 => self.attach_solfiv2_accs(market),
-            Dex::ZeroFi => self.attach_zerofi_accs(market),
-            Dex::ObricV2 => self.attach_obric_v2_accs(market),
-            Dex::Tessera => self.attach_tessera_accs(market),
-            Dex::GoonFi => self.attach_goonfi_accs(market),
-            Dex::BisonFi => self.attach_bisonfi_accs(market),
-            _ => {
-                unimplemented!()
-            }
-        };
-
-        self
-    }
-
-    /// Attaches the required remaining accounts for multiple PMMs to the swap instruction.
-    pub fn attach_pmms_accs(&mut self, pmms: &[(Dex, Pubkey)]) -> &mut Self {
-        pmms.iter().for_each(|(pmm, market)| {
-            self.attach_pmm_accs(pmm, market);
-        });
-
-        self
-    }
-
-    pub fn attach_solfiv2_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .solfi_v2
-            .as_ref()
-            .and_then(|c| c.swap_v1.get(market))
-            .unwrap_or_else(|| panic!("SolFiV2 market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_solfi_v2::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_humidifi_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .humidifi
-            .as_ref()
-            .and_then(|c| c.swap_v1.get(market))
-            .unwrap_or_else(|| panic!("HumidiFi market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        accs.push(AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_humidifi_swap_v2v3_accs(&mut self, pmm: &Dex, market: &Pubkey) {
-        let humidifi = self.cfg.humidifi.as_ref().unwrap_or_else(|| panic!("HumidiFi not configured"));
-        let cfg = match pmm {
-            Dex::HumidiFiSwapV2 => humidifi.swap_v2.get(market),
-            Dex::HumidiFiSwapV3 => humidifi.swap_v3.get(market),
-            _ => unreachable!(),
-        }
-        .unwrap_or_else(|| panic!("{pmm} market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_humidifi::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        accs.push(AccountMeta::new_readonly(Misc::create_humidifi_param(1500), false));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_zerofi_accs(&mut self, market: &Pubkey) {
-        let cfg =
-            self.cfg.zerofi.as_ref().and_then(|c| c.swap_v1.get(market)).unwrap_or_else(|| panic!("ZeroFi market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_zerofi::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_obric_v2_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .obric_v2
-            .as_ref()
-            .and_then(|c| c.swap_v2.get(market))
-            .unwrap_or_else(|| panic!("ObricV2 market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_obric_v2::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_tessera_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .tessera
-            .as_ref()
-            .and_then(|c| c.swap_v1.get(market))
-            .unwrap_or_else(|| panic!("Tessera market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_tessera::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, Some(self.src_mint), Some(self.dst_mint)));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_goonfi_accs(&mut self, market: &Pubkey) {
-        let cfg =
-            self.cfg.goonfi.as_ref().and_then(|c| c.swap_v1.get(market)).unwrap_or_else(|| panic!("GoonFi market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_goonfi::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        accs.push(AccountMeta::new_readonly(Pubkey::new_from_array([0u8; 32]), false));
-        self.builder.add_remaining_accounts(&accs);
-    }
-
-    pub fn attach_bisonfi_accs(&mut self, market: &Pubkey) {
-        let cfg = self
-            .cfg
-            .bisonfi
-            .as_ref()
-            .and_then(|c| c.swap_v1.get(market))
-            .unwrap_or_else(|| panic!("BisonFi market {market} not configured"));
-
-        let mut accs = vec![AccountMeta::new_readonly(Pubkey::new_from_array(magnus_shared::pmm_bisonfi::id().to_bytes()), false)];
-        accs.extend(cfg.swap_accounts(self.payer, self.src_ta, self.dst_ta, None, None));
-        self.builder.add_remaining_accounts(&accs);
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct BenchmarkRecord {
     slot: u64,
@@ -776,37 +621,25 @@ impl App {
 
                             let ix = match call_type {
                                 CallType::Cpi => {
-                                    let mut swap_builder = SwapBuilder::new()
-                                        .payer(env.wallet_pubkey())
-                                        .source_token_account(src_ata)
-                                        .destination_token_account(dst_ata)
-                                        .source_mint(src_token.addr)
-                                        .destination_mint(dst_token.addr)
-                                        .amount_in(amount_in)
-                                        .expect_amount_out(1)
-                                        .min_return(1)
-                                        .amounts(vec![amount_in])
-                                        .routes(routes.clone())
-                                        .order_id(Misc::gen_order_id())
-                                        .clone();
+                                    let data = SwapArgs {
+                                        amount_in,
+                                        expect_amount_out: 1,
+                                        min_return: 1,
+                                        amounts: vec![amount_in],
+                                        routes: routes.clone(),
+                                    };
 
-                                    let mut swap_ix = ConstructSwap {
+                                    let mut construct = ConstructSwap {
                                         cfg: cfg.clone(),
-                                        builder: &mut swap_builder,
+                                        remaining_accounts: vec![],
                                         payer: env.wallet_pubkey(),
                                         src_ta: src_ata,
                                         dst_ta: dst_ata,
                                         src_mint: src_token.addr,
                                         dst_mint: dst_token.addr,
-                                    }
-                                    .attach_pmms_accs(&[(pmm, market)])
-                                    .instruction();
-
-                                    if let Some(aggr) = spoof {
-                                        swap_ix.program_id = aggr.program_id();
-                                    }
-
-                                    swap_ix
+                                    };
+                                    construct.attach_pmms_accs(&[(pmm, market)]);
+                                    construct.instruction(*spoof, data, Misc::gen_order_id())
                                 }
                                 CallType::Direct => {
                                     app.build_direct_ix(&env, target, market, src_token, dst_token, src_ata, dst_ata, amount_in)
@@ -945,35 +778,19 @@ impl App {
             })
             .collect();
 
-        let mut swap_builder = SwapBuilder::new()
-            .payer(env.wallet_pubkey())
-            .source_token_account(src_ata)
-            .destination_token_account(dst_ata)
-            .source_mint(src_token.addr)
-            .destination_mint(dst_token.addr)
-            .amount_in(amount_in_sum)
-            .expect_amount_out(1)
-            .min_return(1)
-            .amounts(amount_in)
-            .routes(routes.clone())
-            .order_id(Misc::gen_order_id())
-            .clone();
+        let data = SwapArgs { amount_in: amount_in_sum, expect_amount_out: 1, min_return: 1, amounts: amount_in, routes: routes.clone() };
 
-        let mut swap_ix = ConstructSwap {
+        let mut construct = ConstructSwap {
             cfg: self.cfg.clone(),
-            builder: &mut swap_builder,
+            remaining_accounts: vec![],
             payer: env.wallet_pubkey(),
             src_ta: src_ata,
             dst_ta: dst_ata,
             src_mint: src_token.addr,
             dst_mint: dst_token.addr,
-        }
-        .attach_pmms_accs(&flat_resolved)
-        .instruction();
-
-        if let Some(aggr) = spoof {
-            swap_ix.program_id = aggr.program_id();
-        }
+        };
+        construct.attach_pmms_accs(&flat_resolved);
+        let swap_ix = construct.instruction(*spoof, data, Misc::gen_order_id());
 
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());
         let res = env.send_transaction(tx).expect("failed to exec tx");

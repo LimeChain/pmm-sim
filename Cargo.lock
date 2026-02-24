@@ -3027,7 +3027,7 @@ dependencies = [
 [[package]]
 name = "magnus-router-client"
 version = "0.0.1-rc"
-source = "git+https://git@github.com/limechain/magnus.git?rev=ab2b972#ab2b97224fb6db7c439d889e51d7af48b6950a95"
+source = "git+https://git@github.com/limechain/magnus.git?branch=extend-router-ixs#9ecd34b634031f5dfdf5747c33a329605ea6e7c4"
 dependencies = [
  "borsh 1.6.0",
  "num-derive",
@@ -3044,7 +3044,7 @@ dependencies = [
 [[package]]
 name = "magnus-shared"
 version = "0.0.1-rc"
-source = "git+https://git@github.com/limechain/magnus.git?rev=ab2b972#ab2b97224fb6db7c439d889e51d7af48b6950a95"
+source = "git+https://git@github.com/limechain/magnus.git?branch=extend-router-ixs#9ecd34b634031f5dfdf5747c33a329605ea6e7c4"
 dependencies = [
  "anchor-lang",
  "magnus-router-client",
