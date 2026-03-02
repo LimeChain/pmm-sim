@@ -411,6 +411,8 @@ pub struct BenchmarkRecord {
     dst_token: String,
     amount_in: f64,
     amount_out: f64,
+    spread: f64,
+    spread_bps: f64,
     compute_units: u64,
 }
 
@@ -479,6 +481,8 @@ impl Benchmark {
             Column::new("dst_token".into(), self.records.iter().map(|r| r.dst_token.as_str()).collect::<Vec<_>>()),
             Column::new("amount_in".into(), self.records.iter().map(|r| r.amount_in).collect::<Vec<_>>()),
             Column::new("amount_out".into(), self.records.iter().map(|r| r.amount_out).collect::<Vec<_>>()),
+            Column::new("spread".into(), self.records.iter().map(|r| r.spread).collect::<Vec<_>>()),
+            Column::new("spread_bps".into(), self.records.iter().map(|r| r.spread_bps).collect::<Vec<_>>()),
             Column::new("compute_units".into(), self.records.iter().map(|r| r.compute_units).collect::<Vec<_>>()),
         ])?;
 
@@ -668,6 +672,62 @@ impl App {
                                 CallType::Direct => env.token_balance(&dst_token.addr),
                             };
 
+                            // reverse swap to measure spread
+                            env.set_accounts(&pmm_accs)?;
+                            env.reset_wallet(&dst_token.addr, amount_out)?;
+
+                            let rev_ix = match call_type {
+                                CallType::Cpi => {
+                                    let data = SwapArgs {
+                                        amount_in: amount_out,
+                                        expect_amount_out: 1,
+                                        min_return: 1,
+                                        amounts: vec![amount_out],
+                                        routes: routes.clone(),
+                                    };
+                                    let mut construct = ConstructSwap {
+                                        cfg: cfg.clone(),
+                                        remaining_accounts: vec![],
+                                        payer: env.wallet_pubkey(),
+                                        src_ta: dst_ata,
+                                        dst_ta: src_ata,
+                                        src_mint: dst_token.addr,
+                                        dst_mint: src_token.addr,
+                                    };
+                                    construct.attach_pmms_accs(&[(pmm, market)]);
+                                    construct.instruction(*spoof, data, Misc::gen_order_id())
+                                }
+                                CallType::Direct => {
+                                    app.build_direct_ix(&env, target, market, dst_token, src_token, dst_ata, src_ata, amount_out)
+                                }
+                            };
+
+                            let rev_tx = Transaction::new_signed_with_payer(
+                                &[rev_ix],
+                                Some(&env.wallet_pubkey()),
+                                &[&env.wallet],
+                                env.latest_blockhash(),
+                            );
+
+                            let (spread, spread_bps) = match env.send_transaction(rev_tx) {
+                                Ok(rev_res) => {
+                                    let amount_back = match call_type {
+                                        CallType::Cpi => env.get_amount_out(&rev_res),
+                                        CallType::Direct => env.token_balance(&src_token.addr),
+                                    };
+                                    let amount_in_h = Misc::to_human(amount_in, src_token.dec);
+                                    let amount_back_h = Misc::to_human(amount_back, src_token.dec);
+                                    let spread = amount_in_h - amount_back_h;
+                                    let spread_bps = if amount_in_h > 0.0 { spread / amount_in_h * 10_000.0 } else { 0.0 };
+                                    (spread, spread_bps)
+                                }
+                                Err(e) => {
+                                    (warn_cnt == 0).then(|| pb.println(format!("[WARN] {}: reverse swap failed: {:?}", pmm, e)));
+                                    warn_cnt += 1;
+                                    (f64::NAN, f64::NAN)
+                                }
+                            };
+
                             records.push(BenchmarkRecord {
                                 slot: env.slot.unwrap_or_default(),
                                 pmm: pmm.to_string(),
@@ -676,6 +736,8 @@ impl App {
                                 dst_token: dst_token.symbol.clone(),
                                 amount_in: Misc::to_human(amount_in, src_token.dec),
                                 amount_out: Misc::to_human(amount_out, dst_token.dec),
+                                spread,
+                                spread_bps,
                                 compute_units: res.compute_units_consumed,
                             });
 
