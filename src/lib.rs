@@ -37,6 +37,8 @@ use crate::{
 /// Constants used throughout the simulation environment.
 /// Holds the CFG file paths, templates, limits and more;
 pub mod consts {
+    use solana_sdk::{pubkey, pubkey::Pubkey};
+
     pub const ROUTER: &str = "magnus-router";
     pub const DATASETS_PATH: &str = "./datasets";
     pub const SETUP_PATH: &str = "./cfg/setup.toml";
@@ -50,6 +52,8 @@ pub mod consts {
     pub const AIRDROP_AMOUNT: u64 = 100_000_000_000;
     // the maximum number of compute units a tx can consume
     pub const COMPUTE_UNITS_LIMIT: u64 = 20_000_000;
+
+    pub const JITODONTFRONT: Pubkey = pubkey!("jitodontfront11111111111JustUseJupiterU1tra");
 }
 
 #[derive(Parser, Debug)]
@@ -218,6 +222,12 @@ pub enum Cmd {
 
         #[arg(long, value_delimiter = ',', default_value = "50,50", help = "Comma-separated weights")]
         weights: Vec<u8>,
+
+        #[arg(long, env = "JITODONTFRONT", action = clap::ArgAction::Set, default_value_t = false, help = "Append jitodontfront account to remaining_accounts")]
+        jitodontfront: bool,
+
+        #[arg(long, env = "JITODONTFRONT_ACC", help = "Override the default jitodontfront account address")]
+        jitodontfront_acc: Option<Pubkey>,
     },
 
     #[command(
@@ -267,6 +277,12 @@ pub enum Cmd {
             help = "JSON nested weights matching the prop AMMs structure, e.g. '[[50,50],[100]]'"
         )]
         weights: String,
+
+        #[arg(long, env = "JITODONTFRONT", action = clap::ArgAction::Set, default_value_t = false, help = "Append jitodontfront account to remaining_accounts")]
+        jitodontfront: bool,
+
+        #[arg(long, env = "JITODONTFRONT_ACC", help = "Override the default jitodontfront account address")]
+        jitodontfront_acc: Option<Pubkey>,
     },
 
     #[command(
@@ -309,6 +325,12 @@ pub enum Cmd {
             help = "Swap call type: cpi (through router) or direct (standalone PMM instruction)"
         )]
         call_type: CallType,
+
+        #[arg(long, env = "JITODONTFRONT", action = clap::ArgAction::Set, default_value_t = false, help = "Append jitodontfront account to remaining_accounts")]
+        jitodontfront: bool,
+
+        #[arg(long, env = "JITODONTFRONT_ACC", help = "Override the default jitodontfront account address")]
+        jitodontfront_acc: Option<Pubkey>,
     },
 
     #[command(
@@ -558,7 +580,11 @@ impl App {
     }
 
     pub fn benchmark(&self) -> eyre::Result<()> {
-        let Cmd::Benchmark { common, datasets_path, pmms, range, spoof, call_type } = &self.args.cmd else { unreachable!() };
+        let Cmd::Benchmark { common, datasets_path, pmms, range, spoof, call_type, jitodontfront, jitodontfront_acc } = &self.args.cmd
+        else {
+            unreachable!()
+        };
+        let jitodontfront_pubkey = jitodontfront_acc.unwrap_or(consts::JITODONTFRONT);
 
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
@@ -643,6 +669,9 @@ impl App {
                                         dst_mint: dst_token.addr,
                                     };
                                     construct.attach_pmms_accs(&[(pmm, market)]);
+                                    if *jitodontfront {
+                                        construct.append_acc(jitodontfront_pubkey);
+                                    }
                                     construct.instruction(*spoof, data, Misc::gen_order_id())
                                 }
                                 CallType::Direct => {
@@ -695,6 +724,9 @@ impl App {
                                         dst_mint: src_token.addr,
                                     };
                                     construct.attach_pmms_accs(&[(pmm, market)]);
+                                    if *jitodontfront {
+                                        construct.append_acc(jitodontfront_pubkey);
+                                    }
                                     construct.instruction(*spoof, data, Misc::gen_order_id())
                                 }
                                 CallType::Direct => {
@@ -782,13 +814,13 @@ impl App {
     }
 
     pub fn simulate(&self) -> eyre::Result<()> {
-        let (common, amount_in, resolved, weights, spoof) = match &self.args.cmd {
-            Cmd::RouterSingle { common, amount_in, pmms, weights, spoof } => {
+        let (common, amount_in, resolved, weights, spoof, jitodontfront, jitodontfront_acc) = match &self.args.cmd {
+            Cmd::RouterSingle { common, amount_in, pmms, weights, spoof, jitodontfront, jitodontfront_acc } => {
                 let resolved: Vec<Vec<(Dex, Pubkey)>> =
                     vec![pmms.iter().map(|t| (t.dex, t.resolve(&self.cfg).unwrap_or_else(|| panic!("{} not configured", t)))).collect()];
-                (common, vec![*amount_in], resolved, vec![weights.clone()], spoof)
+                (common, vec![*amount_in], resolved, vec![weights.clone()], spoof, jitodontfront, jitodontfront_acc)
             }
-            Cmd::RouterMulti { common, amount_in, pmms, weights, spoof } => {
+            Cmd::RouterMulti { common, amount_in, pmms, weights, spoof, jitodontfront, jitodontfront_acc } => {
                 let targets = CliArgs::parse_nested_pmms(pmms).expect("invalid format for nested dexes");
                 let weights = CliArgs::parse_nested_weights(weights).expect("invalid format for nested weights");
 
@@ -799,7 +831,7 @@ impl App {
                     })
                     .collect();
 
-                (common, amount_in.clone(), resolved, weights, spoof)
+                (common, amount_in.clone(), resolved, weights, spoof, jitodontfront, jitodontfront_acc)
             }
             _ => unreachable!(),
         };
@@ -810,6 +842,7 @@ impl App {
             assert_eq!(d.len(), w.len(), "dexes and weights length mismatch");
         });
 
+        let jitodontfront_pubkey = jitodontfront_acc.unwrap_or(consts::JITODONTFRONT);
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
         let flat_resolved: Vec<(Dex, Pubkey)> = resolved.iter().flatten().copied().collect();
         let flat_dexes: Vec<Dex> = flat_resolved.iter().map(|(d, _)| *d).collect();
@@ -852,6 +885,9 @@ impl App {
             dst_mint: dst_token.addr,
         };
         construct.attach_pmms_accs(&flat_resolved);
+        if *jitodontfront {
+            construct.append_acc(jitodontfront_pubkey);
+        }
         let swap_ix = construct.instruction(*spoof, data, Misc::gen_order_id());
 
         let tx = Transaction::new_signed_with_payer(&[swap_ix], Some(&env.wallet_pubkey()), &[&env.wallet], env.latest_blockhash());

@@ -101,6 +101,12 @@ impl ConstructSwap {
         self
     }
 
+    /// Appends a readonly account to remaining_accounts.
+    pub fn append_acc(&mut self, acc: Pubkey) -> &mut Self {
+        self.remaining_accounts.push(AccountMeta::new_readonly(acc, false));
+        self
+    }
+
     pub fn attach_solfiv2_accs(&mut self, market: &Pubkey) {
         let cfg = self
             .cfg
