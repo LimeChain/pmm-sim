@@ -584,8 +584,8 @@ impl App {
         else {
             unreachable!()
         };
-        let jitodontfront_pubkey = jitodontfront_acc.unwrap_or(consts::JITODONTFRONT);
 
+        let jitodontfront_pubkey = jitodontfront_acc.unwrap_or(consts::JITODONTFRONT);
         let rpc_client = RpcClient::new(common.http_url.expose_secret().to_string());
 
         let (src_token, dst_token) = (self.cfg.get_token(&common.src_token)?, self.cfg.get_token(&common.dst_token)?);
