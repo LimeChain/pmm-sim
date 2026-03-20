@@ -1,3 +1,7 @@
 .idea
 target/
 sbf_trace_dir/
+*.parquet
+*.json
+venv/
+
